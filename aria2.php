@@ -98,6 +98,7 @@ class php2Aria2c
     private $dir;
     private $opt;
     private $connection;
+    private $aria2;
 
     function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null)
     {
@@ -177,22 +178,30 @@ class php2Aria2c
         return $status;
     }
 
-    public static function processOneElementFromInternalQueue(){
+    public static function processOneElementFromInternalQueue()
+    {
         $self = new self();
         return $self->pProcessOneElementFromInternalQueue();
     }
 
-    public function pProcessOneElementFromInternalQueue(){
+    public function pProcessOneElementFromInternalQueue()
+    {
+        if ($this->checkForFreeSlots()) {
+            return "No free slots...";
+        }
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("select * from downloads where dispatched = 0 order by id asc limit 1");
             $stmt->execute();
             $data = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($data === false) {
+                return "Queue is empty";
+            }
             $this->url = $data['url'];
             $this->selectedFormat = $data['formatOption'];
             $this->cookiesPath = $data['cookiesPath'];
             $this->opt = unserialize($data['opt']);
             list($status, $code) = self::checkAria2cDispatchStatus(self::dispatchToAira2c());
-            if ($code === 1){
+            if ($code === 1) {
                 $stmt = $this->connection->prepare("update downloads set dispatched = 1 where id = :id");
                 $stmt->bindParam(':id', $data['id']);
                 $stmt->execute();
@@ -203,12 +212,14 @@ class php2Aria2c
         return $status;
     }
 
-    public static function removeDispatchedURLsFromInternalQueue(){
+    public static function removeDispatchedURLsFromInternalQueue()
+    {
         $self = new self();
         return $self->pRemoveDispatchedURLsFromInternalQueue();
     }
 
-    public function pRemoveDispatchedURLsFromInternalQueue(){
+    public function pRemoveDispatchedURLsFromInternalQueue()
+    {
         $stmt = $this->connection->prepare("delete from downloads where dispatched = 1");
         $stmt->execute();
         return true;
@@ -221,7 +232,8 @@ class php2Aria2c
         return $status;
     }
 
-    private function checkAria2cDispatchStatus($out){
+    private function checkAria2cDispatchStatus($out)
+    {
         if (isset($out['id'])) {
             $status = "Added to aria2c queue";
             $code = 1;
@@ -232,10 +244,11 @@ class php2Aria2c
         return array($status, $code);
     }
 
-    private function dispatchToAira2c(){
+    private function dispatchToAira2c()
+    {
         $url = shell_exec('youtube-dl -f "' . $this->selectedFormat . '" "' . $this->url . '" -g --cookies ' . $this->cookiesPath);
-        $aria2 = new Aria2();
-        $out = $aria2->addUri(
+        $this->connect2aria2c();
+        $out = $this->aria2->addUri(
             [$url],
             $this->opt
         );
@@ -260,12 +273,14 @@ class php2Aria2c
         }
     }
 
-    public static function getCountFromInternalQueue(){
+    public static function getCountFromInternalQueue()
+    {
         $self = new self();
         return $self->pGetCountFromInternalQueue();
     }
 
-    public function pGetCountFromInternalQueue(){
+    public function pGetCountFromInternalQueue()
+    {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("select count(*) as count from downloads where dispatched = 0");
             $stmt->execute();
@@ -278,4 +293,21 @@ class php2Aria2c
     }
 
 
+    private function checkForFreeSlots()
+    {
+        $this->connect2aria2c();
+        $globOptions = $this->aria2->getGlobalOption();
+        $globStat = $this->aria2->getGlobalStat();
+        if (($globStat['result']['numActive'] + $globStat['result']['numWaiting']) < $globOptions['result']['max-concurrent-downloads']) {
+            return true;
+        }
+        return false;
+    }
+
+    private function connect2aria2c()
+    {
+        if (!isset($this->aria2)) {
+            $this->aria2 = new Aria2();
+        }
+    }
 }
