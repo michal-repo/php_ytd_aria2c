@@ -48,7 +48,23 @@ if (isset($_POST['cleanUpCookies']) && $_POST['cleanUpCookies'] === "yes") {
 }
 
 if (isset($_POST['processOneFromInternalQueue']) && $_POST['processOneFromInternalQueue'] === "yes") {
-    $status = php2Aria2c::processOneElementFromInternalQueue();
+    $continue = true;
+    if (isset($_POST['uselockfile']) && $_POST['uselockfile'] === "yes") {
+        $lockfile = 'lock';
+        $fp = fopen($lockfile, "r");
+        if (flock($fp, LOCK_EX | LOCK_NB) === false) {
+            $status = "Couldn't get the lock!";
+            $continue = false;
+            fclose($fp);
+        }
+    }
+    if ($continue) {
+        $status = php2Aria2c::processOneElementFromInternalQueue();
+    }
+    if (isset($_POST['uselockfile']) && $_POST['uselockfile'] === "yes" && $continue) {
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
     redirectToSelf(("?status=" . urlencode($status)));
 }
 
@@ -164,6 +180,7 @@ if (isset($_POST['processOneFromInternalQueue']) && $_POST['processOneFromIntern
             <div class="col">
                 <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' class="float-end">
                     <input type="hidden" value="yes" id="processOneFromInternalQueue" name="processOneFromInternalQueue">
+                    <input type="hidden" value="yes" id="uselockfile" name="uselockfile">
                     <button type="submit" class="btn btn-success">Process one URL from Queue</button>
                 </form>
             </div>
