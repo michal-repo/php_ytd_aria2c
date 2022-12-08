@@ -186,7 +186,7 @@ class php2Aria2c
 
     public function pProcessOneElementFromInternalQueue()
     {
-        if ($this->checkForFreeSlots()) {
+        if (!$this->checkForFreeSlots()) {
             return "No free slots...";
         }
         if (!is_null($this->connection)) {
@@ -200,7 +200,7 @@ class php2Aria2c
             $this->selectedFormat = $data['formatOption'];
             $this->cookiesPath = $data['cookiesPath'];
             $this->opt = unserialize($data['opt']);
-            list($status, $code) = self::checkAria2cDispatchStatus(self::dispatchToAira2c());
+            list($status, $code) = $this->checkAria2cDispatchStatus($this->dispatchToAria2c());
             if ($code === 1) {
                 $stmt = $this->connection->prepare("update downloads set dispatched = 1 where id = :id");
                 $stmt->bindParam(':id', $data['id']);
@@ -228,7 +228,7 @@ class php2Aria2c
     public function addToAria2cQueue()
     {
         $this->generateOptionsForAria2c();
-        list($status, $unused) = $this->checkAria2cDispatchStatus($this->dispatchToAira2c());
+        list($status, $unused) = $this->checkAria2cDispatchStatus($this->dispatchToAria2c());
         return $status;
     }
 
@@ -244,7 +244,7 @@ class php2Aria2c
         return array($status, $code);
     }
 
-    private function dispatchToAira2c()
+    private function dispatchToAria2c()
     {
         $url = shell_exec('youtube-dl -f "' . $this->selectedFormat . '" "' . $this->url . '" -g --cookies ' . $this->cookiesPath);
         $this->connect2aria2c();
