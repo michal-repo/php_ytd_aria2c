@@ -310,4 +310,53 @@ class php2Aria2c
             $this->aria2 = new Aria2();
         }
     }
+
+    public static function listInternalQueue($type = 'active', $beautify = false)
+    {
+        $self = new self();
+        $results = $self->pListInternalQueue($type);
+        if ($results === null) {
+            return [true, "Unable to connect to local database."];
+        }
+        if ($beautify) {
+            $table = '<table class="table"><thead><tr>';
+            $ths = array_keys($results[0]);
+            foreach ($ths as $th) {
+                $table .= '<th scope="col">' . $th . '</th>';
+            }
+            $table .= '</tr></thead><tbody>';
+
+            foreach ($results as $row) {
+                $table .= '<tr>';
+                foreach ($row as $col) {
+                    $table .= '<td>' . $col . '</td>';
+                }
+                $table .= '</tr>';
+            }
+
+            $table .= "</tbody></table>";
+        }
+        return [true, $table];
+    }
+
+    public function pListInternalQueue($type)
+    {
+        if (!is_null($this->connection)) {
+            switch ($type) {
+                case 'history':
+                    $type_code = 1;
+                    break;
+                default:
+                case 'active':
+                    $type_code = 0;
+                    break;
+            }
+            $stmt = $this->connection->prepare("select * from downloads where dispatched = " . $type_code);
+            $stmt->execute();
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } else {
+            return null;
+        }
+        return $data;
+    }
 }

@@ -68,6 +68,14 @@ if (isset($_POST['processOneFromInternalQueue']) && $_POST['processOneFromIntern
     redirectToSelf(("?status=" . urlencode($status)));
 }
 
+if (isset($_POST['showQueuedDownloads']) && $_POST['showQueuedDownloads'] === "yes") {
+    list($show_results, $results_to_print) = php2Aria2c::listInternalQueue('active', true);
+}
+
+if (isset($_POST['showQueueHistory']) && $_POST['showQueueHistory'] === "yes") {
+    list($show_results, $results_to_print) = php2Aria2c::listInternalQueue('history', true);
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -185,8 +193,40 @@ if (isset($_POST['processOneFromInternalQueue']) && $_POST['processOneFromIntern
                 </form>
             </div>
         </div>
+        <hr>
+        <div class="row">
+            <div class="col">
+                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' class="float-end">
+                    <input type="hidden" value="yes" id="showQueuedDownloads" name="showQueuedDownloads">
+                    <button type="submit" class="btn btn-info">Show queued downloads</button>
+                </form>
+            </div>
+        </div>
+        </br>
+        <div class="row">
+            <div class="col">
+                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' class="float-end">
+                    <input type="hidden" value="yes" id="showQueueHistory" name="showQueueHistory">
+                    <button type="submit" class="btn btn-warning">Show queue history</button>
+                </form>
+            </div>
+        </div>
     </div>
-
+    <?php
+    if (isset($show_results)) {
+    ?>
+        <div class="container-fluid" id="results">
+            <div class="row">
+                <div class="col-12">
+                    <?php
+                    echo $results_to_print;
+                    ?>
+                </div>
+            </div>
+        </div>
+    <?php
+    }
+    ?>
 </body>
 
 
