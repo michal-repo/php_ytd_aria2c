@@ -9,4 +9,5 @@ Set-up cron job to process links from internal queue.
 
 # app update
 New update changes DB structure, remove old db file before using new version.
+
 Set DB directory path in config file.
