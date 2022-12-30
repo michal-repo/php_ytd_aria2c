@@ -331,7 +331,7 @@ class php2Aria2c
         $url = shell_exec('youtube-dl -f "' . $this->selectedFormat . '" "' . $this->url . '" -g ' . (($this->useCookiesForAria2c == 0) ? '' : '--cookies ' . $this->cookiesPath) . $creds);
         $this->setDownloadURL($this->ID, trim($url));
         sleep($GLOBALS['config']['delay_after_ytd_url_generation']);
-        return $this->addURLToAria2c($url);
+        return $this->addURLToAria2c(trim($url));
     }
 
     private function addURLToAria2c($url)
