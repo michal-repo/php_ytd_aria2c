@@ -1,5 +1,7 @@
 <?php
 
+include_once "config.php";
+
 // https://github.com/shiny/php-aria2
 
 class Aria2
@@ -69,7 +71,7 @@ class Aria2
 
         $data = [
             'jsonrpc' => '2.0',
-            'id' => '1',
+            'id' => ((string) random_int(1, 999999)),
             'method' => $name,
             'params' => $arg
         ];
@@ -92,23 +94,30 @@ class php2Aria2c
     private $url;
     private $selectedFormat;
     private $formats;
-    private $cookiesId;
+    private $md5URLID;
     private $cookiesPath;
+    private $availableFormatsPath;
     private $out;
     private $dir;
+    private $useCookiesForAria2c;
     private $opt;
     private $connection;
     private $aria2;
+    private $credID;
+    private $ID;
 
-    function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null)
+    function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null, $useCookiesForAria2c = 1, $credID = null)
     {
         $this->url = $url;
         $this->selectedFormat = $selectedFormat;
         $this->formats = $formats;
-        $this->cookiesId = md5($this->url);
-        $this->cookiesPath = '"cookies/' . $this->cookiesId . '.cookiesjar"';
+        $this->md5URLID = md5($this->url);
+        $this->cookiesPath = '"cookies/' . $this->md5URLID . '.cookiesjar"';
+        $this->availableFormatsPath = 'tmp/' . $this->md5URLID . '.formats';
         $this->out = $outName;
         $this->dir = $dirName;
+        $this->credID = $credID;
+        $this->useCookiesForAria2c = $useCookiesForAria2c;
         $this->opt = array();
         $this->initDB();
     }
@@ -116,19 +125,25 @@ class php2Aria2c
     public function fetchFormats()
     {
         $this->formats = array();
-        $out = shell_exec('youtube-dl "' . $this->url . '" -F');
-        $lines = explode(PHP_EOL, $out);
-        $start = false;
-        foreach ($lines as $line) {
-            if (strpos($line, "format") !== false && strpos($line, "resolution") !== false && strpos($line, "extension") !== false && !$start) {
-                $start = true;
-                continue;
-            } elseif (!$start) {
-                continue;
-            }
+        if (file_exists($this->availableFormatsPath)) {
+            $this->formats = unserialize(file_get_contents($this->availableFormatsPath));
+        } else {
+            $creds = $this->getCreds();
+            $out = shell_exec('youtube-dl "' . $this->url . '" -F' . $creds);
+            $lines = explode(PHP_EOL, $out);
+            $start = false;
+            foreach ($lines as $line) {
+                if (strpos($line, "format") !== false && strpos($line, "resolution") !== false && strpos($line, "extension") !== false && !$start) {
+                    $start = true;
+                    continue;
+                } elseif (!$start) {
+                    continue;
+                }
 
-            $format_code = substr($line, 0, strpos($line, " "));
-            $this->formats[$line] = $format_code;
+                $format_code = substr($line, 0, strpos($line, " "));
+                $this->formats[$line] = $format_code;
+            }
+            file_put_contents($this->availableFormatsPath, serialize($this->formats));
         }
         return $this;
     }
@@ -154,22 +169,53 @@ class php2Aria2c
         $this->dir = $dirName;
     }
 
+    public function setCookiesUsage($val)
+    {
+        $this->useCookiesForAria2c = $val;
+    }
+
+    public function setCredentialsID($id)
+    {
+        $this->credID = $id;
+    }
+
+    public function setID($id)
+    {
+        $this->ID = $id;
+    }
+
+    private function getCreds()
+    {
+        $cred_str = "";
+        if (!is_null($this->connection) && (isset($this->credID) && is_int($this->credID) && $this->credID > 0)) {
+            $stmt = $this->connection->prepare("select username, password from credentials where id = :id");
+            $stmt->bindParam(':id', $this->credID);
+            $stmt->execute();
+            $data = $stmt->fetch(PDO::FETCH_ASSOC);
+            $cred_str = " --username " . $data['username'] . " --password " . $data['username'];
+        }
+        return $cred_str;
+    }
+
     private function generateOptionsForAria2c()
     {
-        $this->opt['out'] = $this->out;
-        $this->opt['dir'] = $this->dir;
-        $this->opt['load-cookies'] = $this->cookiesPath;
+        if (!is_null($this->out)) {
+            $this->opt['out'] = $this->out;
+        }
+        if (!is_null($this->dir)) {
+            $this->opt['dir'] = $this->dir;
+        }
+        if (!is_null($this->cookiesPath)) {
+            $this->opt['load-cookies'] = $this->cookiesPath;
+        }
     }
 
     public function addToInternalQueue()
     {
         if (!is_null($this->connection)) {
             $this->generateOptionsForAria2c();
-            $stmt = $this->connection->prepare("insert into downloads (url, formatOption, cookiesPath, opt, addedTime) values (:url, :formatOption, :cookiesPath, :opt, datetime('now', 'localtime'))");
-            $stmt->bindParam(':url', $this->url);
-            $stmt->bindParam(':formatOption', $this->selectedFormat);
-            $stmt->bindParam(':cookiesPath', $this->cookiesPath);
-            $stmt->bindParam(':opt', serialize($this->opt));
+            $stmt = $this->connection->prepare("update downloads set dispatched = 0 where id = :id");
+            $stmt->bindParam(':id', $this->ID);
             $stmt->execute();
             $status = "Added to internal queue";
         } else {
@@ -196,20 +242,34 @@ class php2Aria2c
             if ($data === false) {
                 return "Queue is empty";
             }
-            $this->url = $data['url'];
-            $this->selectedFormat = $data['formatOption'];
-            $this->cookiesPath = $data['cookiesPath'];
-            $this->opt = unserialize($data['opt']);
+            $this->fillObjData($data);
             list($status, $code) = $this->checkAria2cDispatchStatus($this->dispatchToAria2c());
             if ($code === 1) {
-                $stmt = $this->connection->prepare("update downloads set dispatched = 1 where id = :id");
-                $stmt->bindParam(':id', $data['id']);
-                $stmt->execute();
+                $this->setDispachedInDBByID($data['id']);
             }
         } else {
             $status = "Unable to connect to local database.";
         }
         return $status;
+    }
+
+    private function fillObjData(array $data)
+    {
+        $this->url = $data['url'];
+        $this->selectedFormat = $data['formatOption'];
+        $this->cookiesPath = $data['cookiesPath'];
+        $this->useCookiesForAria2c = $data['useCookiesForAria2c'];
+        $this->opt = unserialize($data['opt']);
+        $this->ID = $data['id'];
+    }
+
+    private function setDispachedInDBByID($id)
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("update downloads set dispatched = 1 where id = :id");
+            $stmt->bindParam(':id', $id);
+            $stmt->execute();
+        }
     }
 
     public static function removeDispatchedURLsFromInternalQueue()
@@ -227,9 +287,30 @@ class php2Aria2c
 
     public function addToAria2cQueue()
     {
-        $this->generateOptionsForAria2c();
         list($status, $unused) = $this->checkAria2cDispatchStatus($this->dispatchToAria2c());
         return $status;
+    }
+
+    public function save()
+    {
+        $this->generateOptionsForAria2c();
+        if (!is_null($this->connection)) {
+            if (isset($this->ID)) {
+                $stmt = $this->connection->prepare("update downloads set url = :url, formatOption = :formatOption, cookiesPath = :cookiesPath, useCookiesForAria2c = :useCookiesForAria2c, opt = :opt where id = :id");
+                $stmt->bindParam(':id', $this->ID);
+            } else {
+                $stmt = $this->connection->prepare("insert into downloads (url, formatOption, cookiesPath, useCookiesForAria2c, opt, dispatched, addedTime) values (:url, :formatOption, :cookiesPath, :useCookiesForAria2c, :opt, 1, datetime('now', 'localtime'))");
+            }
+            $stmt->bindParam(':url', $this->url);
+            $stmt->bindParam(':formatOption', $this->selectedFormat);
+            $stmt->bindParam(':cookiesPath', $this->cookiesPath);
+            $stmt->bindParam(':useCookiesForAria2c', $this->useCookiesForAria2c);
+            $stmt->bindParam(':opt', serialize($this->opt));
+            $stmt->execute();
+            if (!isset($this->ID)) {
+                $this->ID = $this->connection->lastInsertId();
+            }
+        }
     }
 
     private function checkAria2cDispatchStatus($out)
@@ -246,25 +327,48 @@ class php2Aria2c
 
     private function dispatchToAria2c()
     {
-        $url = shell_exec('youtube-dl -f "' . $this->selectedFormat . '" "' . $this->url . '" -g --cookies ' . $this->cookiesPath);
+        $creds = $this->getCreds();
+        $url = shell_exec('youtube-dl -f "' . $this->selectedFormat . '" "' . $this->url . '" -g ' . (($this->useCookiesForAria2c == 0) ? '' : '--cookies ' . $this->cookiesPath) . $creds);
+        $this->setDownloadURL($this->ID, trim($url));
+        sleep($GLOBALS['config']['delay_after_ytd_url_generation']);
+        return $this->addURLToAria2c($url);
+    }
+
+    private function addURLToAria2c($url)
+    {
         $this->connect2aria2c();
-        $out = $this->aria2->addUri(
+        $options = $this->opt;
+        if ($this->useCookiesForAria2c == 0) {
+            unset($options['load-cookies']);
+        }
+        return $this->aria2->addUri(
             [$url],
-            $this->opt
+            $options
         );
-        return $out;
+    }
+
+    private function setDownloadURL($id, $url)
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("update downloads set download_url = :value where id = :id");
+            $stmt->bindParam(':id', $id);
+            $stmt->bindParam(':value', $url);
+            $stmt->execute();
+        }
     }
 
     private function initDB()
     {
         try {
             $initDB = false;
-            if (!is_file(__DIR__ . "/php_aria2.db")) {
+            if (!is_file((isset($GLOBALS['config']['db_location']) ? $GLOBALS['config']['db_location'] : __DIR__) . "/php_aria2.db")) {
                 $initDB = true;
             }
-            $this->connection = new PDO("sqlite:" . __DIR__ . "/php_aria2.db");
+            $this->connection = new PDO("sqlite:" . (isset($GLOBALS['config']['db_location']) ? $GLOBALS['config']['db_location'] : __DIR__) . "/php_aria2.db");
             if ($initDB) {
-                $stmt = $this->connection->prepare('create table downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, formatOption TEXT NOT NULL, cookiesPath TEXT NOT NULL, opt TEXT NOT NULL, dispatched INTEGER DEFAULT 0 NOT NULL, addedTime TEXT NOT NULL) ');
+                $stmt = $this->connection->prepare('create table downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, download_url TEXT, formatOption TEXT NOT NULL, useCookiesForAria2c INTEGER DEFAULT 1 NOT NULL, cookiesPath TEXT NOT NULL, opt TEXT NOT NULL, dispatched INTEGER DEFAULT 0 NOT NULL, addedTime TEXT NOT NULL) ');
+                $stmt->execute();
+                $stmt = $this->connection->prepare('create table credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, extractor TEXT NOT NULL, login TEXT NOT NULL, password TEXT NOT NULL, main_page_url TEXT NOT NULL) ');
                 $stmt->execute();
             }
         } catch (Exception $e) {
@@ -324,12 +428,50 @@ class php2Aria2c
             foreach ($ths as $th) {
                 $table .= '<th scope="col">' . $th . '</th>';
             }
+            $table .= '<th scope="col">Actions</th>';
+            if ($type != 'active') {
+                $table .= '<th scope="col">aria2c</th>';
+            }
             $table .= '</tr></thead><tbody>';
 
             foreach ($results as $row) {
                 $table .= '<tr>';
                 foreach ($row as $col) {
                     $table .= '<td>' . $col . '</td>';
+                }
+                $table .= '<td>';
+                $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                    <input type="hidden" value="' . $row['id'] . '" id="editDownloadByID" name="editDownloadByID">
+                    <button type="submit" class="btn btn-success" title="Edit this download job."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16">
+                    <path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708l-3-3zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207l6.5-6.5zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.499.499 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11l.178-.178z"/>
+                  </svg></button>
+                </form>';
+                if ($type == 'active') {
+                    $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                    <input type="hidden" value="' . $row['id'] . '" id="removeDownloadByID" name="removeDownloadByID">
+                    <button type="submit" class="btn btn-danger" title="Remove this download job."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
+                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                    <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                  </svg></button>
+                </form>';
+                } else {
+                    $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                    <input type="hidden" value="' . $row['id'] . '" id="redownloadByID" name="redownloadByID">
+                    <button type="submit" class="btn btn-primary" title="Reset dispach status to scheduled."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                  </svg></button>
+                </form><form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                <input type="hidden" value="' . $row['id'] . '" id="addToAria2cByID" name="addToAria2cByID">
+                <button type="submit" class="btn btn-primary" title="Add this url to aria2c now."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-down-square-fill" viewBox="0 0 16 16">
+                <path d="M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm6.5 4.5v5.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 10.293V4.5a.5.5 0 0 1 1 0z"/>
+              </svg></button>
+            </form>';
+                }
+                $table .= '</td>';
+                if ($type != 'active') {
+                    $opt = unserialize($row['opt']);
+                    $table .= '<td>' . $row['download_url'] . ' ' . (isset($opt['out']) ? '--out="' . $opt['out'] . '"' : "") . (isset($opt['dir']) ? '--dir="' . $opt['dir'] . '"' : "") . '</td>';
                 }
                 $table .= '</tr>';
             }
@@ -351,12 +493,102 @@ class php2Aria2c
                     $type_code = 0;
                     break;
             }
-            $stmt = $this->connection->prepare("select * from downloads where dispatched = " . $type_code);
+            $stmt = $this->connection->prepare("select id, url, formatOption, download_url, opt, addedTime from downloads where dispatched = " . $type_code);
             $stmt->execute();
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             return null;
         }
         return $data;
+    }
+
+    public static function setDispatchedByID(int $id, int $value)
+    {
+        $self = new self();
+        return $self->pSetDispatchedByID($id, $value);
+    }
+
+    public function pSetDispatchedByID(int $id, int $value)
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("update downloads set dispatched = :value where id = :id");
+            $stmt->bindParam(':id', $id);
+            $stmt->bindParam(':value', $value);
+            $r = $stmt->execute();
+            if ($r) {
+                $status = "Queued download ID: " . $id . " updated dispatched value to " . $value . ".";
+            } else {
+                $status = "Unable to update queued download ID: " . $id . ".";
+            }
+        } else {
+            $status = "Unable to connect to local database.";
+        }
+        return $status;
+    }
+
+    public static function addToAria2cByID(int $id)
+    {
+        $self = new self();
+        return $self->pAddToAria2cByID($id);
+    }
+
+    public function pAddToAria2cByID(int $id)
+    {
+        if (!is_null($this->connection)) {
+            $data = $this->pGetDownloadByID($id);
+            $this->fillObjData($data);
+            list($status, $code) = $this->checkAria2cDispatchStatus($this->addURLToAria2c($data['download_url']));
+            if ($code === 1) {
+                $this->setDispachedInDBByID($id);
+            }
+        } else {
+            $status = "Unable to connect to local database.";
+        }
+        return $status;
+    }
+
+    private function pGetDownloadByID(int $id)
+    {
+        $stmt = $this->connection->prepare("select * from downloads where id = :id");
+        $stmt->bindParam(':id', $id);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public static function removeDownloadByID(int $id)
+    {
+        $self = new self();
+        return $self->pRemoveDownloadByID($id);
+    }
+
+    public function pRemoveDownloadByID(int $id)
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("delete from downloads where id = :id");
+            $stmt->bindParam(':id', $id);
+            $stmt->execute();
+            $status = "Removed download job.";
+        } else {
+            $status = "Unable to connect to local database.";
+        }
+        return $status;
+    }
+
+    public function getListOfCredentials()
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("select id, extractor from credentials");
+            $stmt->execute();
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return $data;
+        } else {
+            return "Unable to connect to local database.";
+        }
+    }
+
+    public static function getDownloadByID(int $id)
+    {
+        $self = new self();
+        return $self->pGetDownloadByID($id);
     }
 }

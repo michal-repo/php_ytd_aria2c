@@ -1,6 +1,7 @@
 <?php
 
 require "aria2.php";
+include_once "config.php";
 
 $default_name_value = "";
 
@@ -10,37 +11,15 @@ function redirectToSelf($opt = "")
     die();
 }
 
-if (isset($_POST['url'])) {
-    $url = $_POST['url'];
-    if (!empty($url)) {
-        $php2Aria2c = new php2Aria2c($url);
-        $available_formats = $php2Aria2c->fetchFormats()->getFormats();
-    }
-}
-
-if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['formatOption'], $available_formats)) {
-    $php2Aria2c->setSelectedFormat($_POST['formatOption']);
-    if (isset($_POST['out_name']) && $_POST['out_name'] !== $default_name_value) {
-        $php2Aria2c->setOutName($_POST['out_name']);
-    }
-    if (isset($_POST['dir_name']) && !empty($_POST['dir_name'])) {
-        $php2Aria2c->setDirName($_POST['dir_name']);
-    }
-    if ($_POST['addToInternalQueue'] == true) {
-        $status = $php2Aria2c->addToInternalQueue();
-    } else {
-        $status = $php2Aria2c->addToAria2cQueue();
-    }
-    redirectToSelf(("?status=" . urlencode($status)));
-} elseif (isset($_POST['formatOption'])) {
-    echo "Selected invalid format";
-}
 
 if (isset($_POST['cleanUpCookies']) && $_POST['cleanUpCookies'] === "yes") {
-    $files = glob('cookies/*');
-    foreach ($files as $file) {
-        if (is_file($file)) {
-            unlink($file);
+    $files_bucket[] = glob('tmp/*');
+    $files_bucket[] = glob('cookies/*');
+    foreach ($files_bucket as $files) {
+        foreach ($files as $file) {
+            if (is_file($file)) {
+                unlink($file);
+            }
         }
     }
     php2Aria2c::removeDispatchedURLsFromInternalQueue();
@@ -76,6 +55,67 @@ if (isset($_POST['showQueueHistory']) && $_POST['showQueueHistory'] === "yes") {
     list($show_results, $results_to_print) = php2Aria2c::listInternalQueue('history', true);
 }
 
+$actions = ['redownloadByID' => 'setDispatchedByID', 'addToAria2cByID' => 'addToAria2cByID', 'removeDownloadByID' => 'removeDownloadByID'];
+foreach ($actions as $action => $method) {
+    if (isset($_POST[$action])) {
+        $status = php2Aria2c::$method(intval($_POST[$action]), 0);
+        redirectToSelf(("?status=" . urlencode($status)));
+    }
+}
+
+if (isset($_POST['editDownloadByID'])) {
+    $data = php2Aria2c::getDownloadByID(intval($_POST['editDownloadByID']), 0);
+    foreach ($data as $key => $field) {
+        if ($key === "opt") {
+            $downloadOptions = unserialize($field);
+            $_POST['out_name'] = $downloadOptions['out'];
+            $_POST['dir_name'] = $downloadOptions['dir'];
+        } else {
+            $_POST[$key] = $field;
+        }
+    }
+    $_POST['addToInternalQueue'] = "true";
+    $_POST['skipCookies'] = "true";
+    $edit_form = true;
+}
+
+if (isset($_POST['url'])) {
+    $url = $_POST['url'];
+    if (!empty($url)) {
+        $php2Aria2c = new php2Aria2c($url);
+        $available_formats = $php2Aria2c->fetchFormats()->getFormats();
+    }
+    $available_credentials = $php2Aria2c->getListOfCredentials();
+}
+
+if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['formatOption'], $available_formats) && !$edit_form) {
+    $php2Aria2c->setSelectedFormat($_POST['formatOption']);
+    if (isset($_POST['out_name']) && $_POST['out_name'] !== $default_name_value) {
+        $php2Aria2c->setOutName($_POST['out_name']);
+    }
+    if (isset($_POST['dir_name']) && !empty($_POST['dir_name'])) {
+        $php2Aria2c->setDirName($_POST['dir_name']);
+    }
+    if (isset($_POST['skipCookies']) && $_POST['skipCookies'] == "true") {
+        $php2Aria2c->setCookiesUsage(0);
+    }
+    if (isset($_POST['selected_extractor']) && !empty($_POST['selected_extractor'])) {
+        $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
+    }
+    if (isset($_POST['id']) && !empty($_POST['id'])) {
+        $php2Aria2c->setID($_POST['id']);
+    }
+    $php2Aria2c->save();
+    if ($_POST['addToInternalQueue'] == "true") {
+        $status = $php2Aria2c->addToInternalQueue();
+    } else {
+        $status = $php2Aria2c->addToAria2cQueue();
+    }
+    redirectToSelf(("?status=" . urlencode($status)));
+} elseif (isset($_POST['formatOption']) && !$edit_form) {
+    echo "Selected invalid format";
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -105,6 +145,13 @@ if (isset($_POST['showQueueHistory']) && $_POST['showQueueHistory'] === "yes") {
             <div class="col">
                 <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST'>
                     <div class="mb-3">
+                        <?php
+                        if (isset($_POST['id'])) {
+                        ?>
+                            <input type="hidden" value="<?php echo $_POST['id']; ?>" id="id" name="id">
+                        <?php
+                        }
+                        ?>
                         <label for="url" class="form-label">URL</label>
                         <input type="text" class="form-control" id="url" name="url" aria-describedby="urlHelp" <?php
                                                                                                                 if (isset($_POST['url'])) {
@@ -129,15 +176,45 @@ if (isset($_POST['showQueueHistory']) && $_POST['showQueueHistory'] === "yes") {
                                                                                                                                 ?>>
                         <div id="dir_nameHelp" class="form-text">Specify custom save location (optional), will save to default from aria2c config if not specified.</div>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if (isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") {
+                        <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if ((isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") || (!$_POST['url'] && !isset($_POST['addToInternalQueue']) && $GLOBALS['config']['add_to_internal_queue_by_default'])) {
                                                                                                                                                                                             echo "checked";
                                                                                                                                                                                         } ?> <label class="form-check-label" for="addToInternalQueue">
                             Add to internal queue
                             </label>
                         </div>
                         <div id="addToInternalQueueHelp" class="form-text">If checked, URL will be added to internal queue, URL will be prepared and added to aria2c if there will be empty download slot.</br>Useful if you download fails because of expired URL from source page.</div>
+                        <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="true" id="skipCookies" name="skipCookies" aria-describedby="skipCookiesHelp" <?php if ((isset($_POST['skipCookies']) && $_POST['skipCookies'] === "true") || (!$_POST['url'] && !isset($_POST['skipCookies'])  && !$GLOBALS['config']['use_cookies_by_default'] )) {
+                                                                                                                                                                    echo "checked";
+                                                                                                                                                                } ?> <label class="form-check-label" for="skipCookies">
+                            Don't use Cookie Jar
+                            </label>
+                        </div>
+                        <div id="skipCookiesHelp" class="form-text">Skip usage of cookies file when adding to aria2c.</div>
 
                         <?php
+                        if (isset($available_credentials) && is_array($available_credentials)) {
+                        ?>
+                            <div class="form-check">
+                                <select id="selected_extractor" name="selected_extractor" class="form-select">
+                                    <option value="0" <?php if (!isset($_POST["selected_extractor"])) {
+                                                            echo "selected";
+                                                        } ?>>Select extractor credentials</option>
+                                    <?php
+                                    foreach ($available_credentials as $cred) {
+                                    ?>
+                                        <option value="<?php echo $cred["id"]; ?>" <?php if (isset($_POST["selected_extractor"]) && $_POST["selected_extractor"] === $cred["id"]) {
+                                                                                        echo "selected";
+                                                                                    } ?>><?php echo $cred["extractor"]; ?></option>
+                                    <?php
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                        <?php
+                        }
+
+
                         if (isset($available_formats) && is_array($available_formats)) {
                         ?>
                             <hr>
@@ -161,7 +238,9 @@ if (isset($_POST['showQueueHistory']) && $_POST['showQueueHistory'] === "yes") {
                         }
                         ?>
                     </div>
-                    <button type="submit" class="btn btn-primary"><?php if (isset($available_formats)) {
+                    <button type="submit" class="btn btn-primary"><?php if (isset($available_formats) && $edit_form) {
+                                                                        echo "Update";
+                                                                    } elseif (isset($available_formats)) {
                                                                         echo "Add to queue";
                                                                     } else {
                                                                         echo "Get formats";
