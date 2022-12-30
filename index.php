@@ -55,16 +55,26 @@ if (isset($_POST['showQueueHistory']) && $_POST['showQueueHistory'] === "yes") {
     list($show_results, $results_to_print) = php2Aria2c::listInternalQueue('history', true);
 }
 
-$actions = ['redownloadByID' => 'setDispatchedByID', 'addToAria2cByID' => 'addToAria2cByID', 'removeDownloadByID' => 'removeDownloadByID'];
+$actions = ['addToAria2cByID' => 'addToAria2cByID', 'removeDownloadByID' => 'removeDownloadByID'];
 foreach ($actions as $action => $method) {
     if (isset($_POST[$action])) {
-        $status = php2Aria2c::$method(intval($_POST[$action]), 0);
+        $status = php2Aria2c::$method(intval($_POST[$action]));
         redirectToSelf(("?status=" . urlencode($status)));
     }
 }
 
+if (isset($_POST['redownloadByID'])) {
+    $status = php2Aria2c::setDispatchedByID(intval($_POST['redownloadByID']), 0);
+    redirectToSelf(("?status=" . urlencode($status)));
+}
+
+if (isset($_POST['changeDispatchStatusByID'])) {
+    $status = php2Aria2c::setDispatchedByID(intval($_POST['changeDispatchStatusByID']), 1);
+    redirectToSelf(("?status=" . urlencode($status)));
+}
+
 if (isset($_POST['editDownloadByID'])) {
-    $data = php2Aria2c::getDownloadByID(intval($_POST['editDownloadByID']), 0);
+    $data = php2Aria2c::getDownloadByID(intval($_POST['editDownloadByID']));
     foreach ($data as $key => $field) {
         if ($key === "opt") {
             $downloadOptions = unserialize($field);
