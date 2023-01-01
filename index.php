@@ -94,8 +94,8 @@ if (isset($_POST['url'])) {
     if (!empty($url)) {
         $php2Aria2c = new php2Aria2c($url);
         $available_formats = $php2Aria2c->fetchFormats()->getFormats();
+        $available_credentials = $php2Aria2c->getListOfCredentials();
     }
-    $available_credentials = $php2Aria2c->getListOfCredentials();
 }
 
 if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['formatOption'], $available_formats) && !$edit_form) {
