@@ -136,8 +136,8 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
     <title>ytd aria2c UI</title>
     <link rel="icon" href="favicon.ico" type="image/x-icon" />
-    <link rel="stylesheet" href="..\bootstrap\css\bootstrap.min.css">
-    <script src="..\bootstrap\js\bootstrap.min.js"></script>
+    <link rel="stylesheet" href="bootstrap\css\bootstrap.min.css">
+    <script src="bootstrap\js\bootstrap.min.js"></script>
 </head>
 
 <body>
