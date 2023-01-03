@@ -122,26 +122,19 @@ class php2Aria2c
         $this->initDB();
     }
 
-    public function fetchFormats()
+    public function fetchFormats($force_pull = false)
     {
         $this->formats = array();
-        if (file_exists($this->availableFormatsPath)) {
+        if (file_exists($this->availableFormatsPath) && !$force_pull) {
             $this->formats = unserialize(file_get_contents($this->availableFormatsPath));
         } else {
             $creds = $this->getCreds();
-            $out = shell_exec('youtube-dl "' . $this->url . '" -F' . $creds);
-            $lines = explode(PHP_EOL, $out);
-            $start = false;
-            foreach ($lines as $line) {
-                if (strpos($line, "format") !== false && strpos($line, "resolution") !== false && strpos($line, "extension") !== false && !$start) {
-                    $start = true;
-                    continue;
-                } elseif (!$start) {
-                    continue;
+            $out = shell_exec('youtube-dl "' . $this->url . '" --dump-json' . $creds);
+            $json_formats = json_decode($out, 1);
+            if (isset($json_formats)) {
+                foreach ($json_formats['formats'] as $format) {
+                    $this->formats[$format['format']] = $format['format_id'];
                 }
-
-                $format_code = substr($line, 0, strpos($line, " "));
-                $this->formats[$line] = $format_code;
             }
             file_put_contents($this->availableFormatsPath, serialize($this->formats));
         }
@@ -176,7 +169,7 @@ class php2Aria2c
 
     public function setCredentialsID($id)
     {
-        $this->credID = $id;
+        $this->credID = intval($id);
     }
 
     public function setID($id)
@@ -188,11 +181,11 @@ class php2Aria2c
     {
         $cred_str = "";
         if (!is_null($this->connection) && (isset($this->credID) && is_int($this->credID) && $this->credID > 0)) {
-            $stmt = $this->connection->prepare("select username, password from credentials where id = :id");
+            $stmt = $this->connection->prepare("select login, password from credentials where id = :id");
             $stmt->bindParam(':id', $this->credID);
             $stmt->execute();
             $data = $stmt->fetch(PDO::FETCH_ASSOC);
-            $cred_str = " --username " . $data['username'] . " --password " . $data['username'];
+            $cred_str = " --username " . $data['login'] . " --password " . $data['password'];
         }
         return $cred_str;
     }
@@ -224,19 +217,24 @@ class php2Aria2c
         return $status;
     }
 
-    public static function processOneElementFromInternalQueue()
+    public static function processOneElementFromInternalQueue(int $id = null, bool $force = false)
     {
         $self = new self();
-        return $self->pProcessOneElementFromInternalQueue();
+        return $self->pProcessOneElementFromInternalQueue($id, $force);
     }
 
-    public function pProcessOneElementFromInternalQueue()
+    public function pProcessOneElementFromInternalQueue(int $id = null, bool $force = false)
     {
-        if (!$this->checkForFreeSlots()) {
+        if (!$this->checkForFreeSlots() && !$force) {
             return "No free slots...";
         }
         if (!is_null($this->connection)) {
-            $stmt = $this->connection->prepare("select * from downloads where dispatched = 0 order by id asc limit 1");
+            if (is_null($id)) {
+                $stmt = $this->connection->prepare("select * from downloads where dispatched = 0 order by id asc limit 1");
+            } else {
+                $stmt = $this->connection->prepare("select * from downloads where id = :id");
+                $stmt->bindParam(':id', $id);
+            }
             $stmt->execute();
             $data = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($data === false) {
@@ -422,6 +420,9 @@ class php2Aria2c
         if ($results === null) {
             return [true, "Unable to connect to local database."];
         }
+        if (empty($results)) {
+            return [true, "Queue for selected status is empty."];
+        }
         if ($beautify) {
             $table = '<table class="table"><thead><tr>';
             $ths = array_keys($results[0]);
@@ -453,10 +454,18 @@ class php2Aria2c
                     <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
                     <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
                   </svg></button>
-                </form><form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                </form>
+                <form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
                 <input type="hidden" value="' . $row['id'] . '" id="changeDispatchStatusByID" name="changeDispatchStatusByID">
                 <button type="submit" class="btn btn-info" title="Switch dispach status to done."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-toggle-on" viewBox="0 0 16 16">
                 <path d="M5 3a5 5 0 0 0 0 10h6a5 5 0 0 0 0-10H5zm6 9a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/>
+              </svg></button>
+            </form>
+            <form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                <input type="hidden" value="' . $row['id'] . '" id="processNowByID" name="processNowByID">
+                <button type="submit" class="btn btn-warning" title="Process this job now."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-download" viewBox="0 0 16 16">
+                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
               </svg></button>
             </form>';
                 } else {
@@ -465,7 +474,8 @@ class php2Aria2c
                     <button type="submit" class="btn btn-dark" title="Reset dispach status to scheduled."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-toggle-off" viewBox="0 0 16 16">
                     <path d="M11 4a4 4 0 0 1 0 8H8a4.992 4.992 0 0 0 2-4 4.992 4.992 0 0 0-2-4h3zm-6 8a4 4 0 1 1 0-8 4 4 0 0 1 0 8zM0 8a5 5 0 0 0 5 5h6a5 5 0 0 0 0-10H5a5 5 0 0 0-5 5z"/>
                   </svg></button>
-                </form><form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                </form>
+                <form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
                 <input type="hidden" value="' . $row['id'] . '" id="addToAria2cByID" name="addToAria2cByID">
                 <button type="submit" class="btn btn-primary" title="Add this url to aria2c now."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-down-square-fill" viewBox="0 0 16 16">
                 <path d="M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm6.5 4.5v5.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 10.293V4.5a.5.5 0 0 1 1 0z"/>

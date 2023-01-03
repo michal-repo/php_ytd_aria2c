@@ -63,6 +63,11 @@ foreach ($actions as $action => $method) {
     }
 }
 
+if (isset($_POST['processNowByID'])) {
+    $status = php2Aria2c::processOneElementFromInternalQueue(intval($_POST['processNowByID']), true);
+    redirectToSelf(("?status=" . urlencode($status)));
+}
+
 if (isset($_POST['redownloadByID'])) {
     $status = php2Aria2c::setDispatchedByID(intval($_POST['redownloadByID']), 0);
     redirectToSelf(("?status=" . urlencode($status)));
@@ -93,7 +98,10 @@ if (isset($_POST['url'])) {
     $url = $_POST['url'];
     if (!empty($url)) {
         $php2Aria2c = new php2Aria2c($url);
-        $available_formats = $php2Aria2c->fetchFormats()->getFormats();
+        if (isset($_POST['selected_extractor']) && !empty($_POST['selected_extractor'])) {
+            $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
+        }
+        $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
         $available_credentials = $php2Aria2c->getListOfCredentials();
     }
 }
@@ -108,9 +116,6 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
     }
     if (isset($_POST['skipCookies']) && $_POST['skipCookies'] == "true") {
         $php2Aria2c->setCookiesUsage(0);
-    }
-    if (isset($_POST['selected_extractor']) && !empty($_POST['selected_extractor'])) {
-        $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
     }
     if (isset($_POST['id']) && !empty($_POST['id'])) {
         $php2Aria2c->setID($_POST['id']);
@@ -186,21 +191,27 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                                                                                                                                 ?>>
                         <div id="dir_nameHelp" class="form-text">Specify custom save location (optional), will save to default from aria2c config if not specified.</div>
                         <div class="form-check">
-                        <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if ((isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") || (!$_POST['url'] && !isset($_POST['addToInternalQueue']) && $GLOBALS['config']['add_to_internal_queue_by_default'])) {
+                            <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if ((isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") || (!$_POST['url'] && !isset($_POST['addToInternalQueue']) && $GLOBALS['config']['add_to_internal_queue_by_default'])) {
                                                                                                                                                                                             echo "checked";
-                                                                                                                                                                                        } ?> <label class="form-check-label" for="addToInternalQueue">
-                            Add to internal queue
+                                                                                                                                                                                        } ?>><label class="form-check-label" for="addToInternalQueue">
+                                Add to internal queue
                             </label>
                         </div>
                         <div id="addToInternalQueueHelp" class="form-text">If checked, URL will be added to internal queue, URL will be prepared and added to aria2c if there will be empty download slot.</br>Useful if you download fails because of expired URL from source page.</div>
                         <div class="form-check">
-                        <input class="form-check-input" type="checkbox" value="true" id="skipCookies" name="skipCookies" aria-describedby="skipCookiesHelp" <?php if ((isset($_POST['skipCookies']) && $_POST['skipCookies'] === "true") || (!$_POST['url'] && !isset($_POST['skipCookies'])  && !$GLOBALS['config']['use_cookies_by_default'] )) {
+                            <input class="form-check-input" type="checkbox" value="true" id="skipCookies" name="skipCookies" aria-describedby="skipCookiesHelp" <?php if ((isset($_POST['skipCookies']) && $_POST['skipCookies'] === "true") || (!$_POST['url'] && !isset($_POST['skipCookies'])  && !$GLOBALS['config']['use_cookies_by_default'])) {
                                                                                                                                                                     echo "checked";
-                                                                                                                                                                } ?> <label class="form-check-label" for="skipCookies">
-                            Don't use Cookie Jar
+                                                                                                                                                                } ?>> <label class="form-check-label" for="skipCookies">
+                                Don't use Cookie Jar
                             </label>
                         </div>
                         <div id="skipCookiesHelp" class="form-text">Skip usage of cookies file when adding to aria2c.</div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="true" id="skipCachedFormats" name="skipCachedFormats" aria-describedby="skipCachedFormatsHelp"> <label class="form-check-label" for="skipCachedFormats">
+                                Skip formats cache.
+                            </label>
+                        </div>
+                        <div id="skipCachedFormatsHelp" class="form-text">Skip usage of cached formats, will fetch available formats via youtube-dl.</div>
 
                         <?php
                         if (isset($available_credentials) && is_array($available_credentials)) {
@@ -228,7 +239,7 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                         if (isset($available_formats) && is_array($available_formats)) {
                         ?>
                             <hr>
-                            <label for="formatOption" class="form-label">Format options, select one</label>
+                            <label for="formatOption" class="form-label">Format options, select one <small>(if list is empty, url is unsupported)</small></label>
                             <?php
                             foreach ($available_formats as $name => $format) {
                                 if (empty($format) && $format !== "0") {
@@ -250,7 +261,7 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                     </div>
                     <button type="submit" class="btn btn-primary"><?php if (isset($available_formats) && $edit_form) {
                                                                         echo "Update";
-                                                                    } elseif (isset($available_formats)) {
+                                                                    } elseif (isset($available_formats) && !empty($available_formats) ) {
                                                                         echo "Add to queue";
                                                                     } else {
                                                                         echo "Get formats";
