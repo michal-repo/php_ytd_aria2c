@@ -25,7 +25,7 @@ if (isset($_POST['cleanUpCookies']) && $_POST['cleanUpCookies'] === "yes") {
     php2Aria2c::removeDispatchedURLsFromInternalQueue();
     redirectToSelf(("?status=" . urlencode("Cleaned up!")));
 }
-
+$edit_form = false;
 if (isset($_POST['processOneFromInternalQueue']) && $_POST['processOneFromInternalQueue'] === "yes") {
     $continue = true;
     if (isset($_POST['uselockfile']) && $_POST['uselockfile'] === "yes") {
@@ -191,7 +191,7 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                                                                                                                                 ?>>
                         <div id="dir_nameHelp" class="form-text">Specify custom save location (optional), will save to default from aria2c config if not specified.</div>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if ((isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") || (!$_POST['url'] && !isset($_POST['addToInternalQueue']) && $GLOBALS['config']['add_to_internal_queue_by_default'])) {
+                            <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if ((isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") || (!isset($_POST['url']) && !isset($_POST['addToInternalQueue']) && $GLOBALS['config']['add_to_internal_queue_by_default'])) {
                                                                                                                                                                                             echo "checked";
                                                                                                                                                                                         } ?>><label class="form-check-label" for="addToInternalQueue">
                                 Add to internal queue
@@ -199,7 +199,7 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                         </div>
                         <div id="addToInternalQueueHelp" class="form-text">If checked, URL will be added to internal queue, URL will be prepared and added to aria2c if there will be empty download slot.</br>Useful if you download fails because of expired URL from source page.</div>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="true" id="skipCookies" name="skipCookies" aria-describedby="skipCookiesHelp" <?php if ((isset($_POST['skipCookies']) && $_POST['skipCookies'] === "true") || (!$_POST['url'] && !isset($_POST['skipCookies'])  && !$GLOBALS['config']['use_cookies_by_default'])) {
+                            <input class="form-check-input" type="checkbox" value="true" id="skipCookies" name="skipCookies" aria-describedby="skipCookiesHelp" <?php if ((isset($_POST['skipCookies']) && $_POST['skipCookies'] === "true") || (!isset($_POST['url']) && !isset($_POST['skipCookies'])  && !$GLOBALS['config']['use_cookies_by_default'])) {
                                                                                                                                                                     echo "checked";
                                                                                                                                                                 } ?>> <label class="form-check-label" for="skipCookies">
                                 Don't use Cookie Jar

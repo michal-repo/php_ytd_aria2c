@@ -430,9 +430,6 @@ class php2Aria2c
                 $table .= '<th scope="col">' . $th . '</th>';
             }
             $table .= '<th scope="col">Actions</th>';
-            if ($type != 'active') {
-                $table .= '<th scope="col">aria2c</th>';
-            }
             $table .= '</tr></thead><tbody>';
 
             foreach ($results as $row) {
@@ -482,12 +479,7 @@ class php2Aria2c
               </svg></button>
             </form>';
                 }
-                $table .= '</td>';
-                if ($type != 'active') {
-                    $opt = unserialize($row['opt']);
-                    $table .= '<td>' . $row['download_url'] . ' ' . (isset($opt['out']) ? '--out="' . $opt['out'] . '"' : "") . (isset($opt['dir']) ? '--dir="' . $opt['dir'] . '"' : "") . '</td>';
-                }
-                $table .= '</tr>';
+                $table .= '</td></tr>';
             }
 
             $table .= "</tbody></table>";
