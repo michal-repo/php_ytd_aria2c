@@ -400,7 +400,17 @@ class php2Aria2c
         $this->connect2aria2c();
         $globOptions = $this->aria2->getGlobalOption();
         $globStat = $this->aria2->getGlobalStat();
-        if (($globStat['result']['numActive'] + $globStat['result']['numWaiting']) < $globOptions['result']['max-concurrent-downloads']) {
+        $numWaiting = $globStat['result']['numWaiting'];
+        if ($numWaiting > 0){
+            $globPaused = $this->aria2->tellWaiting(0, 9999999);
+            foreach ($globPaused['result'] as $entry) {
+                if ($entry['status'] === "paused"){
+                    $numWaiting--;
+                    
+                }
+            }
+        }
+        if (($globStat['result']['numActive'] + $numWaiting) < $globOptions['result']['max-concurrent-downloads']) {
             return true;
         }
         return false;

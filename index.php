@@ -259,13 +259,14 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                         }
                         ?>
                     </div>
-                    <button type="submit" class="btn btn-primary"><?php if (isset($available_formats) && $edit_form) {
+                    <button type="submit" id="submit_btn" class="btn btn-primary"><?php if (isset($available_formats) && $edit_form) {
                                                                         echo "Update";
-                                                                    } elseif (isset($available_formats) && !empty($available_formats) ) {
+                                                                    } elseif (isset($available_formats) && !empty($available_formats)) {
                                                                         echo "Add to queue";
                                                                     } else {
                                                                         echo "Get formats";
                                                                     } ?></button>
+                    <button type="button" class="btn btn-secondary" onclick="(function(){document.getElementsByName('formatOption').forEach(e => e.checked = false)}());document.getElementById('submit_btn').innerHTML='Get formats'">Unselect format</button>
                 </form>
             </div>
         </div>
