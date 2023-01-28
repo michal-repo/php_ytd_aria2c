@@ -444,7 +444,7 @@ class php2Aria2c
             $table = '<table class="table"><thead><tr>';
             $ths = array_keys($results[0]);
             foreach ($ths as $th) {
-                $table .= '<th scope="col">' . $th . '</th>';
+                $table .= '<th scope="col">' . ($th === "opt" ? "Out Filename" : $th) . '</th>';
             }
             $table .= '<th scope="col">Actions</th>';
             $table .= '</tr></thead><tbody>';
@@ -452,7 +452,7 @@ class php2Aria2c
             foreach ($results as $row) {
                 $table .= '<tr>';
                 foreach ($row as $key => $col) {
-                    $table .= '<td>' . ((($key === "url" || $key === "download_url") && ($col !== "" && !is_null($col))) ? "<a href=" . $col . ">" . $link45deg . "</a>" : $col) . '</td>';
+                    $table .= '<td>' . ((($key === "url" || $key === "download_url") && ($col !== "" && !is_null($col))) ? "<a href=" . $col . " target=\"_blank\">" . $link45deg . "</a>" : ($key === "opt" ? unserialize($col)['out'] : $col)) . '</td>';
                 }
                 $table .= '<td>';
                 $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
@@ -599,5 +599,18 @@ class php2Aria2c
     {
         $self = new self();
         return $self->pGetDownloadByID($id);
+    }
+
+    public function findByURL()
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("select * from downloads where url = :url order by id");
+            $stmt->bindParam(':url', $this->url);
+            $stmt->execute();
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return $data;
+        } else {
+            return "Unable to connect to local database.";
+        }
     }
 }

@@ -103,6 +103,7 @@ if (isset($_POST['url'])) {
         }
         $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
         $available_credentials = $php2Aria2c->getListOfCredentials();
+        $alreadyDownloaded = $php2Aria2c->findByURL();
     }
 }
 
@@ -151,7 +152,23 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
             <div class="row">
                 <div class="col">
                     <div class="alert alert-success" role="alert">
-                        <?php echo urldecode($_GET['status']) ?>
+                        <?php echo urldecode($_GET['status']); ?>
+                    </div>
+                </div>
+            </div>
+        <?php } ?>
+        <?php if (isset($alreadyDownloaded) && count($alreadyDownloaded) > 0) { ?>
+            <div class="row">
+                <div class="col">
+                    <div class="alert alert-warning" role="alert">
+                        URL was already downloaded:
+                        <?php foreach ($alreadyDownloaded as $entry) {
+                            echo "<br>ID: " . $entry['id']
+                                . " / Format option: " . $entry['formatOption']
+                                . " / Out Filename: " . unserialize($entry['opt'])['out']
+                                . " / Dispatched status: " . $entry['dispatched']
+                                . " / Added: " . $entry['addedTime'];
+                        } ?>
                     </div>
                 </div>
             </div>
@@ -260,12 +277,12 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                         ?>
                     </div>
                     <button type="submit" id="submit_btn" class="btn btn-primary"><?php if (isset($available_formats) && $edit_form) {
-                                                                        echo "Update";
-                                                                    } elseif (isset($available_formats) && !empty($available_formats)) {
-                                                                        echo "Add to queue";
-                                                                    } else {
-                                                                        echo "Get formats";
-                                                                    } ?></button>
+                                                                                        echo "Update";
+                                                                                    } elseif (isset($available_formats) && !empty($available_formats)) {
+                                                                                        echo "Add to queue";
+                                                                                    } else {
+                                                                                        echo "Get formats";
+                                                                                    } ?></button>
                     <button type="button" class="btn btn-secondary" onclick="(function(){document.getElementsByName('formatOption').forEach(e => e.checked = false)}());document.getElementById('submit_btn').innerHTML='Get formats'">Unselect format</button>
                 </form>
             </div>
