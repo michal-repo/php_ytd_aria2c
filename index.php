@@ -103,7 +103,9 @@ if (isset($_POST['url'])) {
         }
         $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
         $available_credentials = $php2Aria2c->getListOfCredentials();
-        $alreadyDownloaded = $php2Aria2c->findByURL();
+        if (!(isset($_POST['id']) && !empty($_POST['id']))) {
+            $alreadyAdded = $php2Aria2c->findByURL();
+        }
     }
 }
 
@@ -157,12 +159,12 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                 </div>
             </div>
         <?php } ?>
-        <?php if (isset($alreadyDownloaded) && count($alreadyDownloaded) > 0) { ?>
+        <?php if (isset($alreadyAdded) && count($alreadyAdded) > 0) { ?>
             <div class="row">
                 <div class="col">
                     <div class="alert alert-warning" role="alert">
-                        URL was already downloaded:
-                        <?php foreach ($alreadyDownloaded as $entry) {
+                        URL already added:
+                        <?php foreach ($alreadyAdded as $entry) {
                             echo "<br>ID: " . $entry['id']
                                 . " / Format option: " . $entry['formatOption']
                                 . " / Out Filename: " . unserialize($entry['opt'])['out']
