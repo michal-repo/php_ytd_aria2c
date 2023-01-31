@@ -452,7 +452,9 @@ class php2Aria2c
             foreach ($results as $row) {
                 $table .= '<tr>';
                 foreach ($row as $key => $col) {
-                    $table .= '<td>' . ((($key === "url" || $key === "download_url") && ($col !== "" && !is_null($col))) ? "<a href=" . $col . " target=\"_blank\">" . $link45deg . "</a>" : ($key === "opt" ? unserialize($col)['out'] : $col)) . '</td>';
+                    $table .= '<td>' . ((($key === "url" || $key === "download_url") && ($col !== "" && !is_null($col)))
+                        ? "<a href=" . $col . " target=\"_blank\">" . $link45deg . "</a>"
+                        : ($key === "opt" ? unserialize($col)['dir'] . unserialize($col)['out'] : $col)) . '</td>';
                 }
                 $table .= '<td>';
                 $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">

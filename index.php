@@ -209,7 +209,19 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                                                                                                                                 }
                                                                                                                                 ?>>
                         <div id="dir_nameHelp" class="form-text">Specify custom save location (optional), will save to default from aria2c config if not specified.</div>
-                        <div class="form-check">
+                        <?php
+                        if (isset($custom_locations)) {
+                            foreach ($custom_locations as $label => $location) {
+                        ?>
+                                <a href='javascript:appendField("dir_name", "<?php echo $location; ?>");' style="margin-right:10px;"><?php echo $label; ?></a>
+                            <?php
+                            }
+                            ?>
+                            <br><br>
+                        <?php
+                        }
+                        ?>
+                        <div <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if ((isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") || (!isset($_POST['url']) && !isset($_POST['addToInternalQueue']) && $GLOBALS['config']['add_to_internal_queue_by_default'])) {
                                                                                                                                                                                             echo "checked";
                                                                                                                                                                                         } ?>><label class="form-check-label" for="addToInternalQueue">
@@ -348,6 +360,10 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
     }
     ?>
 </body>
-
+<script>
+    function appendField(id, value) {
+        document.getElementById(id).value = value;
+    }
+</script>
 
 </html>
