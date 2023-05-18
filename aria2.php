@@ -104,7 +104,12 @@ class php2Aria2c
     private $connection;
     private $aria2;
     private $credID;
+    public $priority;
+    private $attempts;
     private $ID;
+    private $LOCK_QUEUE = "LOCK_QUEUE";
+    private $LOCK_QUEUE_VAL_UNLOCKED = "UNLOCKED";
+    private $LOCK_QUEUE_VAL_LOCKED = "LOCKED";
 
     function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null, $useCookiesForAria2c = 1, $credID = null)
     {
@@ -136,7 +141,9 @@ class php2Aria2c
                     $this->formats[$format['format']] = $format['format_id'];
                 }
             }
-            file_put_contents($this->availableFormatsPath, serialize($this->formats));
+            if (!empty($this->formats)) {
+                file_put_contents($this->availableFormatsPath, serialize($this->formats));
+            }
         }
         return $this;
     }
@@ -225,12 +232,16 @@ class php2Aria2c
 
     public function pProcessOneElementFromInternalQueue(int $id = null, bool $force = false)
     {
+        if ($this->checkForQueueLock() && !$force) {
+            return "Internal queue is locked!";
+        }
         if (!$this->checkForFreeSlots() && !$force) {
             return "No free slots...";
         }
         if (!is_null($this->connection)) {
             if (is_null($id)) {
-                $stmt = $this->connection->prepare("select * from downloads where dispatched = 0 order by id asc limit 1");
+                $stmt = $this->connection->prepare("select * from downloads where dispatched = 0 and attempts < :attempts order by priority desc, id asc limit 1");
+                $stmt->bindParam(':attempts', $GLOBALS['config']['max_download_attempts']);
             } else {
                 $stmt = $this->connection->prepare("select * from downloads where id = :id");
                 $stmt->bindParam(':id', $id);
@@ -259,6 +270,8 @@ class php2Aria2c
         $this->useCookiesForAria2c = $data['useCookiesForAria2c'];
         $this->opt = unserialize($data['opt']);
         $this->ID = $data['id'];
+        $this->priority = $data['priority'];
+        $this->attempts = $data['attempts'];
     }
 
     private function setDispachedInDBByID($id)
@@ -294,16 +307,17 @@ class php2Aria2c
         $this->generateOptionsForAria2c();
         if (!is_null($this->connection)) {
             if (isset($this->ID)) {
-                $stmt = $this->connection->prepare("update downloads set url = :url, formatOption = :formatOption, cookiesPath = :cookiesPath, useCookiesForAria2c = :useCookiesForAria2c, opt = :opt where id = :id");
+                $stmt = $this->connection->prepare("update downloads set url = :url, formatOption = :formatOption, cookiesPath = :cookiesPath, useCookiesForAria2c = :useCookiesForAria2c, opt = :opt, priority = :priority where id = :id");
                 $stmt->bindParam(':id', $this->ID);
             } else {
-                $stmt = $this->connection->prepare("insert into downloads (url, formatOption, cookiesPath, useCookiesForAria2c, opt, dispatched, addedTime) values (:url, :formatOption, :cookiesPath, :useCookiesForAria2c, :opt, 1, datetime('now', 'localtime'))");
+                $stmt = $this->connection->prepare("insert into downloads (url, formatOption, cookiesPath, useCookiesForAria2c, opt, priority, dispatched, addedTime) values (:url, :formatOption, :cookiesPath, :useCookiesForAria2c, :opt, :priority, 1, datetime('now', 'localtime'))");
             }
             $stmt->bindParam(':url', $this->url);
             $stmt->bindParam(':formatOption', $this->selectedFormat);
             $stmt->bindParam(':cookiesPath', $this->cookiesPath);
             $stmt->bindParam(':useCookiesForAria2c', $this->useCookiesForAria2c);
             $stmt->bindParam(':opt', serialize($this->opt));
+            $stmt->bindParam(':priority', $this->priority);
             $stmt->execute();
             if (!isset($this->ID)) {
                 $this->ID = $this->connection->lastInsertId();
@@ -325,8 +339,12 @@ class php2Aria2c
 
     private function dispatchToAria2c()
     {
+        $this->incrementAttempts();
         $creds = $this->getCreds();
         $url = shell_exec('youtube-dl -f "' . $this->selectedFormat . '" "' . $this->url . '" -g ' . (($this->useCookiesForAria2c == 0) ? '' : '--cookies ' . $this->cookiesPath) . $creds);
+        if ($url === "" || is_null($url)) {
+            return null;
+        }
         $this->setDownloadURL($this->ID, trim($url));
         sleep($GLOBALS['config']['delay_after_ytd_url_generation']);
         return $this->addURLToAria2c(trim($url));
@@ -364,9 +382,15 @@ class php2Aria2c
             }
             $this->connection = new PDO("sqlite:" . (isset($GLOBALS['config']['db_location']) ? $GLOBALS['config']['db_location'] : __DIR__) . "/php_aria2.db");
             if ($initDB) {
-                $stmt = $this->connection->prepare('create table downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, download_url TEXT, formatOption TEXT NOT NULL, useCookiesForAria2c INTEGER DEFAULT 1 NOT NULL, cookiesPath TEXT NOT NULL, opt TEXT NOT NULL, dispatched INTEGER DEFAULT 0 NOT NULL, addedTime TEXT NOT NULL) ');
+                $stmt = $this->connection->prepare('create table downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, download_url TEXT, formatOption TEXT NOT NULL, useCookiesForAria2c INTEGER DEFAULT 1 NOT NULL, cookiesPath TEXT NOT NULL, opt TEXT NOT NULL, dispatched INTEGER DEFAULT 0 NOT NULL, addedTime TEXT NOT NULL, priority INTEGER DEFAULT 5 NOT NULL, attempts INTEGER DEFAULT 0 NOT NULL ) ');
                 $stmt->execute();
                 $stmt = $this->connection->prepare('create table credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, extractor TEXT NOT NULL, login TEXT NOT NULL, password TEXT NOT NULL, main_page_url TEXT NOT NULL) ');
+                $stmt->execute();
+                $stmt = $this->connection->prepare('create table sysvals (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, value TEXT NOT NULL) ');
+                $stmt->execute();
+                $stmt = $this->connection->prepare("insert into sysvals (`name`, `value`) values (:name, :value)");
+                $stmt->bindParam(':name', $this->LOCK_QUEUE);
+                $stmt->bindParam(':value', $this->LOCK_QUEUE_VAL_UNLOCKED);
                 $stmt->execute();
             }
         } catch (Exception $e) {
@@ -422,7 +446,76 @@ class php2Aria2c
         }
     }
 
-    public static function listInternalQueue($type = 'active', $beautify = false)
+    private function checkForQueueLock()
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("select value from sysvals where name = :name");
+            $stmt->bindParam(':name', $this->LOCK_QUEUE);
+            $stmt->execute();
+            $record = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($record['value'] === $this->LOCK_QUEUE_VAL_UNLOCKED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function incrementAttempts()
+    {
+        if (!is_null($this->connection)) {
+            $this->attempts++;
+            $stmt = $this->connection->prepare("update downloads set attempts = :value where id = :id");
+            $stmt->bindParam(':id', $this->ID);
+            $stmt->bindParam(':value', $this->attempts);
+            $r = $stmt->execute();
+            if ($r) {
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    public static function getQueueLockStatus()
+    {
+        $self = new self();
+        return $self->checkForQueueLock();
+    }
+
+    public static function lockQueue()
+    {
+        $self = new self();
+        $stmt = $self->connection->prepare("update sysvals set value = :value where name = :name");
+        $stmt->bindParam(':value', $self->LOCK_QUEUE_VAL_LOCKED);
+        $stmt->bindParam(':name', $self->LOCK_QUEUE);
+        $stmt->execute();
+    }
+
+    public static function unlockQueue()
+    {
+        $self = new self();
+        $stmt = $self->connection->prepare("update sysvals set value = :value where name = :name");
+        $stmt->bindParam(':value', $self->LOCK_QUEUE_VAL_UNLOCKED);
+        $stmt->bindParam(':name', $self->LOCK_QUEUE);
+        $stmt->execute();
+    }
+
+    public static function listInternalQueue($type = 'active', $beautify = false, $param = ['showQueue' => 'yes'], $offset = 0, $limit = 100)
+    {
+        $self = new self();
+        list($results, $pages) = $self->pListInternalQueue($type, $offset, ($limit === 'all' ? 99999999 : $limit));
+        if ($results === null) {
+            return [true, "Unable to connect to local database."];
+        }
+        if (empty($results)) {
+            return [true, "Queue for selected status is empty."];
+        }
+        return $self->generateResultsHTMLTable($results, $pages, $beautify, $param, $offset, $limit);
+    }
+
+    public function generateResultsHTMLTable($results, $pages, $beautify = false, $param = ['showQueue' => 'yes'], $offset = 0, $limit = 100)
     {
         $link45deg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg" viewBox="0 0 16 16"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/></svg>';
         $pencilfill = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708l-3-3zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207l6.5-6.5zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.499.499 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11l.178-.178z"/></svg>';
@@ -431,15 +524,11 @@ class php2Aria2c
         $bidownload = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-download" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>';
         $toggleoff = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-toggle-off" viewBox="0 0 16 16"><path d="M11 4a4 4 0 0 1 0 8H8a4.992 4.992 0 0 0 2-4 4.992 4.992 0 0 0-2-4h3zm-6 8a4 4 0 1 1 0-8 4 4 0 0 1 0 8zM0 8a5 5 0 0 0 5 5h6a5 5 0 0 0 0-10H5a5 5 0 0 0-5 5z"/></svg>';
         $arrowdown = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-down-square-fill" viewBox="0 0 16 16"><path d="M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm6.5 4.5v5.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 10.293V4.5a.5.5 0 0 1 1 0z"/></svg>';
+        $arrow_circle_up = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-up-circle" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M1 8a7 7 0 1 0 14 0A7 7 0 0 0 1 8zm15 0A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-7.5 3.5a.5.5 0 0 1-1 0V5.707L5.354 7.854a.5.5 0 1 1-.708-.708l3-3a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 5.707V11.5z"/></svg>';
+        $arrow_circle_down = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-down-circle" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M1 8a7 7 0 1 0 14 0A7 7 0 0 0 1 8zm15 0A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM8.5 4.5a.5.5 0 0 0-1 0v5.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V4.5z"/></svg>';
 
-        $self = new self();
-        $results = $self->pListInternalQueue($type);
-        if ($results === null) {
-            return [true, "Unable to connect to local database."];
-        }
-        if (empty($results)) {
-            return [true, "Queue for selected status is empty."];
-        }
+        $table = "";
+        $buttons = "";
         if ($beautify) {
             $table = '<table class="table"><thead><tr>';
             $ths = array_keys($results[0]);
@@ -450,18 +539,18 @@ class php2Aria2c
             $table .= '</tr></thead><tbody>';
 
             foreach ($results as $row) {
-                $table .= '<tr>';
+                $table .= '<tr class="queue-list" id="' . $row['id'] . '">';
                 foreach ($row as $key => $col) {
                     $table .= '<td>' . ((($key === "url" || $key === "download_url") && ($col !== "" && !is_null($col)))
-                        ? "<a href=" . $col . " target=\"_blank\">" . $link45deg . "</a>"
+                        ? "<a onclick=\"javascript:highlightClicked(" . $row['id'] . ")\" href=" . $col . " target=\"_blank\">" . $link45deg . "</a>"
                         : ($key === "opt" ? unserialize($col)['dir'] . unserialize($col)['out'] : $col)) . '</td>';
                 }
                 $table .= '<td>';
                 $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
                     <input type="hidden" value="' . $row['id'] . '" id="editDownloadByID" name="editDownloadByID">
-                    <button type="submit" class="btn btn-success" title="Edit this download job.">' . $pencilfill . '</button>
+                    <button onclick="javascript:highlightClicked(' . $row['id'] . ')" type="submit" class="btn btn-success" title="Edit this download job.">' . $pencilfill . '</button>
                 </form>';
-                if ($type == 'active') {
+                if ($row['dispatched'] == 0) {
                     $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
                     <input type="hidden" value="' . $row['id'] . '" id="removeDownloadByID" name="removeDownloadByID">
                     <button type="submit" class="btn btn-danger" title="Remove this download job.">' . $trash . '</button>
@@ -473,6 +562,14 @@ class php2Aria2c
             <form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
                 <input type="hidden" value="' . $row['id'] . '" id="processNowByID" name="processNowByID">
                 <button type="submit" class="btn btn-warning" title="Process this job now.">' . $bidownload . '</button>
+            </form>
+            <form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                <input type="hidden" value="' . $row['id'] . '" id="priorityUp" name="priorityUp">
+                <button onclick="javascript:highlightClicked(' . $row['id'] . ')" type="submit" class="btn btn-info" title="Priority Up!">' . $arrow_circle_up . '</button>
+            </form>
+            <form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
+                <input type="hidden" value="' . $row['id'] . '" id="priorityDown" name="priorityDown">
+                <button onclick="javascript:highlightClicked(' . $row['id'] . ')" type="submit" class="btn btn-secondary" title="Priority Down!">' . $arrow_circle_down . '</button>
             </form>';
                 } else {
                     $table .= '<form action="' . htmlspecialchars($_SERVER["PHP_SELF"]) . '" method="POST">
@@ -488,11 +585,21 @@ class php2Aria2c
             }
 
             $table .= "</tbody></table>";
+            if ($limit !== 'all') {
+                $buttons .= '<div class="container-fluid"><div class="row"><div class="col-12 mx-auto">';
+                for ($i = 0; $i < $pages; $i++) {
+                    $offset_btn = ($i === 0 ? 0 : ($i * $limit));
+                    $buttons .= '<a class="btn ' . ($offset == $offset_btn ? 'btn-success' : 'btn-secondary') . ' me-2" href="?' . key($param) . '=' . $param[key($param)] . '&offset=' . $offset_btn . '">' . ($i + 1) . '</a>';
+                }
+                $buttons .= '<a class="btn btn-info ms-2" href="?' . key($param) . '=' . $param[key($param)] . '&limit=all">ALL</a>';
+                $buttons .= "</div></div></div>";
+            }
         }
-        return [true, $table];
+        $html = $table . $buttons;
+        return [true, $html];
     }
 
-    public function pListInternalQueue($type)
+    public function pListInternalQueue($type, $offset = 0, $limit = 100)
     {
         if (!is_null($this->connection)) {
             switch ($type) {
@@ -504,13 +611,21 @@ class php2Aria2c
                     $type_code = 0;
                     break;
             }
-            $stmt = $this->connection->prepare("select id, url, formatOption, download_url, opt, addedTime from downloads where dispatched = " . $type_code);
+            $stmt = $this->connection->prepare("select count(id) as count from downloads where dispatched = :type_code");
+            $stmt->bindParam(':type_code', $type_code);
+            $stmt->execute();
+            $count = $stmt->fetch(PDO::FETCH_ASSOC);
+            $pages = ceil($count['count'] / $limit);
+            $stmt = $this->connection->prepare("select id, url, formatOption, download_url, opt, priority, attempts, addedTime, dispatched from downloads where dispatched = :type_code order by " . ($type_code === 0 ? "priority desc, " : "") . " id " . ($type_code === 0 ? "asc" : "desc") . " limit :limit offset :offset");
+            $stmt->bindParam(':limit', $limit);
+            $stmt->bindParam(':offset', $offset);
+            $stmt->bindParam(':type_code', $type_code);
             $stmt->execute();
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             return null;
         }
-        return $data;
+        return [$data, $pages, $limit];
     }
 
     public static function setDispatchedByID(int $id, int $value)
@@ -528,6 +643,52 @@ class php2Aria2c
             $r = $stmt->execute();
             if ($r) {
                 $status = "Queued download ID: " . $id . " updated dispatched value to " . $value . ".";
+            } else {
+                $status = "Unable to update queued download ID: " . $id . ".";
+            }
+        } else {
+            $status = "Unable to connect to local database.";
+        }
+        return $status;
+    }
+
+    public static function incrementPriority(int $id)
+    {
+        $self = new self();
+        return $self->pChangePriority($id, null, 1);
+    }
+
+    public static function decrementPriority(int $id)
+    {
+        $self = new self();
+        return $self->pChangePriority($id, null, -1);
+    }
+
+    public function setPriority(int $id, int $val)
+    {
+        $self = new self();
+        return $self->pChangePriority($id, $val);
+    }
+
+    public function pChangePriority(int $id, int $val = null, int $calculate = null)
+    {
+        if (!is_null($this->connection)) {
+            $stmt = $this->connection->prepare("select priority from downloads where id = :id");
+            $stmt->bindParam(':id', $id);
+            $stmt->execute();
+            $current_priority = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($val !== null) {
+                $new_priority = $val;
+            }
+            if ($calculate !== null) {
+                $new_priority = $current_priority['priority'] + $calculate;
+            }
+            $stmt = $this->connection->prepare("update downloads set priority = :value where id = :id");
+            $stmt->bindParam(':id', $id);
+            $stmt->bindParam(':value', $new_priority);
+            $r = $stmt->execute();
+            if ($r) {
+                $status = "Queued download ID: " . $id . " updated priority value to " . $new_priority . ".";
             } else {
                 $status = "Unable to update queued download ID: " . $id . ".";
             }
@@ -614,5 +775,65 @@ class php2Aria2c
         } else {
             return "Unable to connect to local database.";
         }
+    }
+
+    public static function find(string $phrase, $param, $offset = 0, $limit = 100)
+    {
+        $self = new self();
+        return $self->pFind($phrase, $param, $offset, $limit);
+    }
+
+    public function pFind(string $phrase, $param, $offset = 0, $limit = 100)
+    {
+        if (!is_null($this->connection)) {
+            $phrase = "%" . $phrase . "%";
+            $limit = ($limit === 'all' ? 99999999 : $limit);
+
+            $stmt = $this->connection->prepare("select count(id) as count from downloads where url like :url OR formatOption LIKE :formatOption OR opt LIKE :opt order by id");
+            $stmt->bindParam(':url', $phrase);
+            $stmt->bindParam(':formatOption', $phrase);
+            $stmt->bindParam(':opt', $phrase);
+            $stmt->execute();
+            $count = $stmt->fetch(PDO::FETCH_ASSOC);
+            $pages = ceil($count['count'] / $limit);
+            $stmt = $this->connection->prepare("select id, url, formatOption, download_url, opt, priority, attempts, addedTime, dispatched from downloads where url like :url OR formatOption LIKE :formatOption OR opt LIKE :opt order by id DESC limit :limit offset :offset");
+            $stmt->bindParam(':url', $phrase);
+            $stmt->bindParam(':formatOption', $phrase);
+            $stmt->bindParam(':opt', $phrase);
+            $stmt->bindParam(':limit', $limit);
+            $stmt->bindParam(':offset', $offset);
+            $stmt->execute();
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } else {
+            return [true, "Unable to connect to local database."];
+        }
+        if (empty($data)) {
+            return [true, "No results for searched phrase."];
+        }
+        return $this->generateResultsHTMLTable($data, $pages, true, $param, $offset, $limit);
+    }
+}
+
+class Lock
+{
+
+    private function lockFile()
+    {
+        $continue = true;
+        $status = "";
+        $lockfile = 'lock';
+        $fp = fopen($lockfile, "r");
+        if (flock($fp, LOCK_EX | LOCK_NB) === false) {
+            $status = "Couldn't get the lock!";
+            $continue = false;
+            fclose($fp);
+        }
+        return [$status, $continue, $fp];
+    }
+
+    private function unlockFile($fp)
+    {
+        flock($fp, LOCK_UN);
+        fclose($fp);
     }
 }

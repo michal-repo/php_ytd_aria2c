@@ -3,12 +3,30 @@
 require "aria2.php";
 include_once "config.php";
 
-$default_name_value = "";
-
 function redirectToSelf($opt = "")
 {
     header("Location: " . htmlspecialchars($_SERVER["PHP_SELF"]) . $opt);
     die();
+}
+
+function lockFile()
+{
+    $continue = true;
+    $status = "";
+    $lockfile = 'lock';
+    $fp = fopen($lockfile, "r");
+    if (flock($fp, LOCK_EX | LOCK_NB) === false) {
+        $status = "Couldn't get the lock!";
+        $continue = false;
+        fclose($fp);
+    }
+    return [$status, $continue, $fp];
+}
+
+function unlockFile($fp)
+{
+    flock($fp, LOCK_UN);
+    fclose($fp);
 }
 
 
@@ -27,32 +45,62 @@ if (isset($_POST['cleanUpCookies']) && $_POST['cleanUpCookies'] === "yes") {
 }
 $edit_form = false;
 if (isset($_POST['processOneFromInternalQueue']) && $_POST['processOneFromInternalQueue'] === "yes") {
-    $continue = true;
     if (isset($_POST['uselockfile']) && $_POST['uselockfile'] === "yes") {
-        $lockfile = 'lock';
-        $fp = fopen($lockfile, "r");
-        if (flock($fp, LOCK_EX | LOCK_NB) === false) {
-            $status = "Couldn't get the lock!";
-            $continue = false;
-            fclose($fp);
-        }
+        list($status, $continue, $fp) = lockFile();
     }
     if ($continue) {
         $status = php2Aria2c::processOneElementFromInternalQueue();
     }
     if (isset($_POST['uselockfile']) && $_POST['uselockfile'] === "yes" && $continue) {
-        flock($fp, LOCK_UN);
-        fclose($fp);
+        unlockFile($fp);
     }
     redirectToSelf(("?status=" . urlencode($status)));
 }
 
-if (isset($_POST['showQueuedDownloads']) && $_POST['showQueuedDownloads'] === "yes") {
-    list($show_results, $results_to_print) = php2Aria2c::listInternalQueue('active', true);
+if (isset($_GET['showQueuedDownloads']) && $_GET['showQueuedDownloads'] === "yes") {
+    list($show_results, $results_to_print) = php2Aria2c::listInternalQueue(
+        'active',
+        true,
+        ['showQueuedDownloads' => $_GET['showQueuedDownloads']],
+        (isset($_GET['offset']) ? $_GET['offset'] : 0),
+        (isset($_GET['limit']) ? $_GET['limit'] : 100)
+    );
 }
 
-if (isset($_POST['showQueueHistory']) && $_POST['showQueueHistory'] === "yes") {
-    list($show_results, $results_to_print) = php2Aria2c::listInternalQueue('history', true);
+if (isset($_GET['showQueueHistory']) && $_GET['showQueueHistory'] === "yes") {
+    list($show_results, $results_to_print) = php2Aria2c::listInternalQueue(
+        'history',
+        true,
+        ['showQueueHistory' => $_GET['showQueueHistory']],
+        (isset($_GET['offset']) ? $_GET['offset'] : 0),
+        (isset($_GET['limit']) ? $_GET['limit'] : 100)
+    );
+}
+
+if (isset($_GET['search'])) {
+    list($show_results, $results_to_print) = php2Aria2c::find(
+        urldecode($_GET['search']),
+        ['search' => urlencode($_GET['search'])],
+        (isset($_GET['offset']) ? $_GET['offset'] : 0),
+        (isset($_GET['limit']) ? $_GET['limit'] : 100)
+    );
+}
+
+if (isset($_POST['switchInternalLock']) && !empty($_POST['switchInternalLock'])) {
+    list($status, $continue, $fp) = lockFile();
+    if ($continue) {
+        switch ($_POST['switchInternalLock']) {
+            case 'lock':
+                php2Aria2c::lockQueue();
+                break;
+            case 'unlock':
+                php2Aria2c::unlockQueue();
+                break;
+        }
+        unlockFile($fp);
+    } else {
+        redirectToSelf(("?status=" . urlencode($status)));
+    }
 }
 
 $actions = ['addToAria2cByID' => 'addToAria2cByID', 'removeDownloadByID' => 'removeDownloadByID'];
@@ -64,7 +112,23 @@ foreach ($actions as $action => $method) {
 }
 
 if (isset($_POST['processNowByID'])) {
-    $status = php2Aria2c::processOneElementFromInternalQueue(intval($_POST['processNowByID']), true);
+    $continue = true;
+    if (isset($_POST['uselockfile']) && $_POST['uselockfile'] === "yes") {
+        $lockfile = 'lock';
+        $fp = fopen($lockfile, "r");
+        if (flock($fp, LOCK_EX | LOCK_NB) === false) {
+            $status = "Couldn't get the lock!";
+            $continue = false;
+            fclose($fp);
+        }
+    }
+    if ($continue) {
+        $status = php2Aria2c::processOneElementFromInternalQueue(intval($_POST['processNowByID']), true);
+    }
+    if (isset($_POST['uselockfile']) && $_POST['uselockfile'] === "yes" && $continue) {
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
     redirectToSelf(("?status=" . urlencode($status)));
 }
 
@@ -75,6 +139,16 @@ if (isset($_POST['redownloadByID'])) {
 
 if (isset($_POST['changeDispatchStatusByID'])) {
     $status = php2Aria2c::setDispatchedByID(intval($_POST['changeDispatchStatusByID']), 1);
+    redirectToSelf(("?status=" . urlencode($status)));
+}
+
+if (isset($_POST['priorityUp'])) {
+    $status = php2Aria2c::incrementPriority(intval($_POST['priorityUp']));
+    redirectToSelf(("?status=" . urlencode($status)));
+}
+
+if (isset($_POST['priorityDown'])) {
+    $status = php2Aria2c::decrementPriority(intval($_POST['priorityDown']));
     redirectToSelf(("?status=" . urlencode($status)));
 }
 
@@ -111,6 +185,8 @@ if (isset($_POST['url'])) {
 
 if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['formatOption'], $available_formats) && !$edit_form) {
     $php2Aria2c->setSelectedFormat($_POST['formatOption']);
+    $php2Aria2c->priority = $_POST['priority'];
+    // var_dump($php2Aria2c);
     if (isset($_POST['out_name']) && $_POST['out_name'] !== $default_name_value) {
         $php2Aria2c->setOutName($_POST['out_name']);
     }
@@ -134,6 +210,8 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
     echo "Selected invalid format";
 }
 
+$lock_state = php2Aria2c::getQueueLockStatus();
+
 ?>
 
 <!DOCTYPE html>
@@ -146,6 +224,7 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
     <link rel="icon" href="favicon.ico" type="image/x-icon" />
     <link rel="stylesheet" href="bootstrap\css\bootstrap.min.css">
     <script src="bootstrap\js\bootstrap.min.js"></script>
+    <script type="text/javascript" src="jquery\jquery-3.7.0.min.js"></script>
 </head>
 
 <body>
@@ -244,6 +323,22 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
                         </div>
                         <div id="skipCachedFormatsHelp" class="form-text">Skip usage of cached formats, will fetch available formats via youtube-dl.</div>
 
+                        <input type="text" class="form-control" id="priority" name="priority" aria-describedby="priorityHelp" <?php
+                                                                                                                                if (isset($_POST['priority'])) {
+                                                                                                                                    echo 'value="' . $_POST['priority'] . '"';
+                                                                                                                                } else {
+                                                                                                                                    echo 'value="5"';
+                                                                                                                                }
+                                                                                                                                ?>>
+                        <div id="priorityHelp" class="form-text">Specify priority (default is 5).</div>
+                        <?php
+                        foreach (array("1", "2", "3", "4", "5", "6", "7", "8", "9", "10",) as $pri) {
+                        ?>
+                            <a href='javascript:appendField("priority", "<?php echo $pri; ?>");' style="margin-right:10px;"><?php echo $pri; ?></a>
+                        <?php
+                        }
+                        ?>
+
                         <?php
                         if (isset($available_credentials) && is_array($available_credentials)) {
                         ?>
@@ -302,8 +397,16 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
             </div>
         </div>
         <hr>
-        <div class="row">
-            <div class="col">
+        <div class="row justify-content-end">
+            <div class="col-2">
+
+                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' class="float-end">
+                    <input type="hidden" value="<?php echo ($lock_state ? 'unlock' : 'lock') ?>" id="switchInternalLock" name="switchInternalLock">
+                    <button type="submit" class="btn btn-<?php echo ($lock_state ? 'danger' : 'warning') ?>"><?php echo ($lock_state ? 'Unlock' : 'Lock') ?> internal queue</button>
+                </form>
+
+            </div>
+            <div class="col-3">
                 <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' class="float-end">
                     <input type="hidden" value="yes" id="cleanUpCookies" name="cleanUpCookies">
                     <button type="submit" class="btn btn-danger">Clean up cookies & dispatched jobs</button>
@@ -328,18 +431,27 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
         <hr>
         <div class="row">
             <div class="col">
-                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' class="float-end">
+                <div class="float-start">
+                    <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='GET' class="float-end">
+                        <input type="hidden" value="yes" id="showQueueHistory" name="showQueueHistory">
+                        <button type="submit" class="btn btn-secondary">Show queue history</button>
+                    </form>
+                </div>
+            </div>
+            <div class="col">
+                <div class="float-start">
+                    <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='GET' class="float-end">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="search" name="search">
+                            <button type="submit" class="btn btn-success">Find</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="col">
+                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='GET' class="float-end">
                     <input type="hidden" value="yes" id="showQueuedDownloads" name="showQueuedDownloads">
                     <button type="submit" class="btn btn-info">Show queued downloads</button>
-                </form>
-            </div>
-        </div>
-        </br>
-        <div class="row">
-            <div class="col">
-                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' class="float-end">
-                    <input type="hidden" value="yes" id="showQueueHistory" name="showQueueHistory">
-                    <button type="submit" class="btn btn-warning">Show queue history</button>
                 </form>
             </div>
         </div>
@@ -363,6 +475,11 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
 <script>
     function appendField(id, value) {
         document.getElementById(id).value = value;
+    }
+
+    function highlightClicked(element) {
+        $(".queue-list").removeClass("table-warning");
+        document.getElementById(element).classList.add("table-warning")
     }
 </script>
 
