@@ -316,7 +316,8 @@ class php2Aria2c
             $stmt->bindParam(':formatOption', $this->selectedFormat);
             $stmt->bindParam(':cookiesPath', $this->cookiesPath);
             $stmt->bindParam(':useCookiesForAria2c', $this->useCookiesForAria2c);
-            $stmt->bindParam(':opt', serialize($this->opt));
+            $opt = serialize($this->opt);
+            $stmt->bindParam(':opt', $opt);
             $stmt->bindParam(':priority', $this->priority);
             $stmt->execute();
             if (!isset($this->ID)) {
