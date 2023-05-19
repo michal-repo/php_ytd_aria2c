@@ -189,7 +189,7 @@ class php2Aria2c
         $cred_str = "";
         if (!is_null($this->connection) && (isset($this->credID) && is_int($this->credID) && $this->credID > 0)) {
             $stmt = $this->connection->prepare("select login, password from credentials where id = :id");
-            $stmt->bindParam(':id', $this->credID);
+            $stmt->bindValue(':id', $this->credID);
             $stmt->execute();
             $data = $stmt->fetch(PDO::FETCH_ASSOC);
             $cred_str = " --username " . $data['login'] . " --password " . $data['password'];
@@ -215,7 +215,7 @@ class php2Aria2c
         if (!is_null($this->connection)) {
             $this->generateOptionsForAria2c();
             $stmt = $this->connection->prepare("update downloads set dispatched = 0 where id = :id");
-            $stmt->bindParam(':id', $this->ID);
+            $stmt->bindValue(':id', $this->ID);
             $stmt->execute();
             $status = "Added to internal queue";
         } else {
@@ -241,10 +241,10 @@ class php2Aria2c
         if (!is_null($this->connection)) {
             if (is_null($id)) {
                 $stmt = $this->connection->prepare("select * from downloads where dispatched = 0 and attempts < :attempts order by priority desc, id asc limit 1");
-                $stmt->bindParam(':attempts', $GLOBALS['config']['max_download_attempts']);
+                $stmt->bindValue(':attempts', $GLOBALS['config']['max_download_attempts']);
             } else {
                 $stmt = $this->connection->prepare("select * from downloads where id = :id");
-                $stmt->bindParam(':id', $id);
+                $stmt->bindValue(':id', $id);
             }
             $stmt->execute();
             $data = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -278,7 +278,7 @@ class php2Aria2c
     {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("update downloads set dispatched = 1 where id = :id");
-            $stmt->bindParam(':id', $id);
+            $stmt->bindValue(':id', $id);
             $stmt->execute();
         }
     }
@@ -308,17 +308,16 @@ class php2Aria2c
         if (!is_null($this->connection)) {
             if (isset($this->ID)) {
                 $stmt = $this->connection->prepare("update downloads set url = :url, formatOption = :formatOption, cookiesPath = :cookiesPath, useCookiesForAria2c = :useCookiesForAria2c, opt = :opt, priority = :priority where id = :id");
-                $stmt->bindParam(':id', $this->ID);
+                $stmt->bindValue(':id', $this->ID);
             } else {
                 $stmt = $this->connection->prepare("insert into downloads (url, formatOption, cookiesPath, useCookiesForAria2c, opt, priority, dispatched, addedTime) values (:url, :formatOption, :cookiesPath, :useCookiesForAria2c, :opt, :priority, 1, datetime('now', 'localtime'))");
             }
-            $stmt->bindParam(':url', $this->url);
-            $stmt->bindParam(':formatOption', $this->selectedFormat);
-            $stmt->bindParam(':cookiesPath', $this->cookiesPath);
-            $stmt->bindParam(':useCookiesForAria2c', $this->useCookiesForAria2c);
-            $opt = serialize($this->opt);
-            $stmt->bindParam(':opt', $opt);
-            $stmt->bindParam(':priority', $this->priority);
+            $stmt->bindValue(':url', $this->url);
+            $stmt->bindValue(':formatOption', $this->selectedFormat);
+            $stmt->bindValue(':cookiesPath', $this->cookiesPath);
+            $stmt->bindValue(':useCookiesForAria2c', $this->useCookiesForAria2c);
+            $stmt->bindValue(':opt', (serialize($this->opt)));
+            $stmt->bindValue(':priority', $this->priority);
             $stmt->execute();
             if (!isset($this->ID)) {
                 $this->ID = $this->connection->lastInsertId();
@@ -368,8 +367,8 @@ class php2Aria2c
     {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("update downloads set download_url = :value where id = :id");
-            $stmt->bindParam(':id', $id);
-            $stmt->bindParam(':value', $url);
+            $stmt->bindValue(':id', $id);
+            $stmt->bindValue(':value', $url);
             $stmt->execute();
         }
     }
@@ -390,8 +389,8 @@ class php2Aria2c
                 $stmt = $this->connection->prepare('create table sysvals (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, value TEXT NOT NULL) ');
                 $stmt->execute();
                 $stmt = $this->connection->prepare("insert into sysvals (`name`, `value`) values (:name, :value)");
-                $stmt->bindParam(':name', $this->LOCK_QUEUE);
-                $stmt->bindParam(':value', $this->LOCK_QUEUE_VAL_UNLOCKED);
+                $stmt->bindValue(':name', $this->LOCK_QUEUE);
+                $stmt->bindValue(':value', $this->LOCK_QUEUE_VAL_UNLOCKED);
                 $stmt->execute();
             }
         } catch (Exception $e) {
@@ -451,7 +450,7 @@ class php2Aria2c
     {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("select value from sysvals where name = :name");
-            $stmt->bindParam(':name', $this->LOCK_QUEUE);
+            $stmt->bindValue(':name', $this->LOCK_QUEUE);
             $stmt->execute();
             $record = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($record['value'] === $this->LOCK_QUEUE_VAL_UNLOCKED) {
@@ -466,8 +465,8 @@ class php2Aria2c
         if (!is_null($this->connection)) {
             $this->attempts++;
             $stmt = $this->connection->prepare("update downloads set attempts = :value where id = :id");
-            $stmt->bindParam(':id', $this->ID);
-            $stmt->bindParam(':value', $this->attempts);
+            $stmt->bindValue(':id', $this->ID);
+            $stmt->bindValue(':value', $this->attempts);
             $r = $stmt->execute();
             if ($r) {
                 return true;
@@ -489,8 +488,8 @@ class php2Aria2c
     {
         $self = new self();
         $stmt = $self->connection->prepare("update sysvals set value = :value where name = :name");
-        $stmt->bindParam(':value', $self->LOCK_QUEUE_VAL_LOCKED);
-        $stmt->bindParam(':name', $self->LOCK_QUEUE);
+        $stmt->bindValue(':value', $self->LOCK_QUEUE_VAL_LOCKED);
+        $stmt->bindValue(':name', $self->LOCK_QUEUE);
         $stmt->execute();
     }
 
@@ -498,8 +497,8 @@ class php2Aria2c
     {
         $self = new self();
         $stmt = $self->connection->prepare("update sysvals set value = :value where name = :name");
-        $stmt->bindParam(':value', $self->LOCK_QUEUE_VAL_UNLOCKED);
-        $stmt->bindParam(':name', $self->LOCK_QUEUE);
+        $stmt->bindValue(':value', $self->LOCK_QUEUE_VAL_UNLOCKED);
+        $stmt->bindValue(':name', $self->LOCK_QUEUE);
         $stmt->execute();
     }
 
@@ -613,14 +612,14 @@ class php2Aria2c
                     break;
             }
             $stmt = $this->connection->prepare("select count(id) as count from downloads where dispatched = :type_code");
-            $stmt->bindParam(':type_code', $type_code);
+			$stmt->bindValue(':type_code', $type_code);
             $stmt->execute();
             $count = $stmt->fetch(PDO::FETCH_ASSOC);
             $pages = ceil($count['count'] / $limit);
             $stmt = $this->connection->prepare("select id, url, formatOption, download_url, opt, priority, attempts, addedTime, dispatched from downloads where dispatched = :type_code order by " . ($type_code === 0 ? "priority desc, " : "") . " id " . ($type_code === 0 ? "asc" : "desc") . " limit :limit offset :offset");
-            $stmt->bindParam(':limit', $limit);
-            $stmt->bindParam(':offset', $offset);
-            $stmt->bindParam(':type_code', $type_code);
+			$stmt->bindValue(':limit', $limit);
+            $stmt->bindValue(':offset', $offset);
+            $stmt->bindValue(':type_code', $type_code);
             $stmt->execute();
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
@@ -639,8 +638,8 @@ class php2Aria2c
     {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("update downloads set dispatched = :value where id = :id");
-            $stmt->bindParam(':id', $id);
-            $stmt->bindParam(':value', $value);
+            $stmt->bindValue(':id', $id);
+            $stmt->bindValue(':value', $value);
             $r = $stmt->execute();
             if ($r) {
                 $status = "Queued download ID: " . $id . " updated dispatched value to " . $value . ".";
@@ -675,7 +674,7 @@ class php2Aria2c
     {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("select priority from downloads where id = :id");
-            $stmt->bindParam(':id', $id);
+            $stmt->bindValue(':id', $id);
             $stmt->execute();
             $current_priority = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($val !== null) {
@@ -685,8 +684,8 @@ class php2Aria2c
                 $new_priority = $current_priority['priority'] + $calculate;
             }
             $stmt = $this->connection->prepare("update downloads set priority = :value where id = :id");
-            $stmt->bindParam(':id', $id);
-            $stmt->bindParam(':value', $new_priority);
+            $stmt->bindValue(':id', $id);
+            $stmt->bindValue(':value', $new_priority);
             $r = $stmt->execute();
             if ($r) {
                 $status = "Queued download ID: " . $id . " updated priority value to " . $new_priority . ".";
@@ -723,7 +722,7 @@ class php2Aria2c
     private function pGetDownloadByID(int $id)
     {
         $stmt = $this->connection->prepare("select * from downloads where id = :id");
-        $stmt->bindParam(':id', $id);
+        $stmt->bindValue(':id', $id);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
@@ -738,7 +737,7 @@ class php2Aria2c
     {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("delete from downloads where id = :id");
-            $stmt->bindParam(':id', $id);
+            $stmt->bindValue(':id', $id);
             $stmt->execute();
             $status = "Removed download job.";
         } else {
@@ -769,7 +768,7 @@ class php2Aria2c
     {
         if (!is_null($this->connection)) {
             $stmt = $this->connection->prepare("select * from downloads where url = :url order by id");
-            $stmt->bindParam(':url', $this->url);
+            $stmt->bindValue(':url', $this->url);
             $stmt->execute();
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
             return $data;
@@ -791,18 +790,18 @@ class php2Aria2c
             $limit = ($limit === 'all' ? 99999999 : $limit);
 
             $stmt = $this->connection->prepare("select count(id) as count from downloads where url like :url OR formatOption LIKE :formatOption OR opt LIKE :opt order by id");
-            $stmt->bindParam(':url', $phrase);
-            $stmt->bindParam(':formatOption', $phrase);
-            $stmt->bindParam(':opt', $phrase);
+            $stmt->bindValue(':url', $phrase);
+            $stmt->bindValue(':formatOption', $phrase);
+            $stmt->bindValue(':opt', $phrase);
             $stmt->execute();
             $count = $stmt->fetch(PDO::FETCH_ASSOC);
             $pages = ceil($count['count'] / $limit);
             $stmt = $this->connection->prepare("select id, url, formatOption, download_url, opt, priority, attempts, addedTime, dispatched from downloads where url like :url OR formatOption LIKE :formatOption OR opt LIKE :opt order by id DESC limit :limit offset :offset");
-            $stmt->bindParam(':url', $phrase);
-            $stmt->bindParam(':formatOption', $phrase);
-            $stmt->bindParam(':opt', $phrase);
-            $stmt->bindParam(':limit', $limit);
-            $stmt->bindParam(':offset', $offset);
+            $stmt->bindValue(':url', $phrase);
+            $stmt->bindValue(':formatOption', $phrase);
+            $stmt->bindValue(':opt', $phrase);
+            $stmt->bindValue(':limit', $limit);
+            $stmt->bindValue(':offset', $offset);
             $stmt->execute();
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
