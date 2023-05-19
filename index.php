@@ -152,22 +152,6 @@ if (isset($_POST['priorityDown'])) {
     redirectToSelf(("?status=" . urlencode($status)));
 }
 
-if (isset($_POST['editDownloadByID'])) {
-    $data = php2Aria2c::getDownloadByID(intval($_POST['editDownloadByID']));
-    foreach ($data as $key => $field) {
-        if ($key === "opt") {
-            $downloadOptions = unserialize($field);
-            $_POST['out_name'] = $downloadOptions['out'];
-            $_POST['dir_name'] = $downloadOptions['dir'];
-        } else {
-            $_POST[$key] = $field;
-        }
-    }
-    $_POST['addToInternalQueue'] = "true";
-    $_POST['skipCookies'] = "true";
-    $edit_form = true;
-}
-
 if (isset($_POST['url'])) {
     $url = $_POST['url'];
     if (!empty($url)) {
@@ -183,10 +167,29 @@ if (isset($_POST['url'])) {
     }
 }
 
+if (isset($_POST['editDownloadByID']) || (isset($alreadyAdded) && count($alreadyAdded) > 0)) {
+    if (isset($alreadyAdded) && count($alreadyAdded) > 0){
+        $data = end($alreadyAdded);
+    } else {
+        $data = php2Aria2c::getDownloadByID(intval($_POST['editDownloadByID']));
+    }
+    foreach ($data as $key => $field) {
+        if ($key === "opt") {
+            $downloadOptions = unserialize($field);
+            $_POST['out_name'] = $downloadOptions['out'];
+            $_POST['dir_name'] = $downloadOptions['dir'];
+        } else {
+            $_POST[$key] = $field;
+        }
+    }
+    $_POST['addToInternalQueue'] = "true";
+    $_POST['skipCookies'] = "true";
+    $edit_form = true;
+}
+
 if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['formatOption'], $available_formats) && !$edit_form) {
     $php2Aria2c->setSelectedFormat($_POST['formatOption']);
     $php2Aria2c->priority = $_POST['priority'];
-    // var_dump($php2Aria2c);
     if (isset($_POST['out_name']) && $_POST['out_name'] !== $default_name_value) {
         $php2Aria2c->setOutName($_POST['out_name']);
     }
