@@ -152,27 +152,8 @@ if (isset($_POST['priorityDown'])) {
     redirectToSelf(("?status=" . urlencode($status)));
 }
 
-if (isset($_POST['url'])) {
-    $url = $_POST['url'];
-    if (!empty($url)) {
-        $php2Aria2c = new php2Aria2c($url);
-        if (isset($_POST['selected_extractor']) && !empty($_POST['selected_extractor'])) {
-            $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
-        }
-        $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
-        $available_credentials = $php2Aria2c->getListOfCredentials();
-        if (!(isset($_POST['id']) && !empty($_POST['id']))) {
-            $alreadyAdded = $php2Aria2c->findByURL();
-        }
-    }
-}
-
-if (isset($_POST['editDownloadByID']) || (isset($alreadyAdded) && count($alreadyAdded) > 0)) {
-    if (isset($alreadyAdded) && count($alreadyAdded) > 0){
-        $data = end($alreadyAdded);
-    } else {
-        $data = php2Aria2c::getDownloadByID(intval($_POST['editDownloadByID']));
-    }
+function populateEditForm($data)
+{
     foreach ($data as $key => $field) {
         if ($key === "opt") {
             $downloadOptions = unserialize($field);
@@ -184,7 +165,32 @@ if (isset($_POST['editDownloadByID']) || (isset($alreadyAdded) && count($already
     }
     $_POST['addToInternalQueue'] = "true";
     $_POST['skipCookies'] = "true";
-    $edit_form = true;
+    return true;
+}
+
+if (isset($_POST['editDownloadByID'])) {
+    $data = php2Aria2c::getDownloadByID(intval($_POST['editDownloadByID']));
+    $edit_form = populateEditForm($data);
+}
+
+if (isset($_POST['url'])) {
+    $url = $_POST['url'];
+    if (!empty($url)) {
+        $php2Aria2c = new php2Aria2c($url);
+        if (isset($_POST['selected_extractor']) && !empty($_POST['selected_extractor'])) {
+            $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
+        }
+        $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
+        $available_credentials = $php2Aria2c->getListOfCredentials();
+        if (!(isset($_POST['id']) && !empty($_POST['id']))) {
+            $alreadyAdded = $php2Aria2c->findByURL();
+            if (isset($alreadyAdded) && count($alreadyAdded) > 0){
+                $data = end($alreadyAdded);
+                unset($data['formatOption']);
+                $edit_form = populateEditForm($data);
+            }
+        }
+    }
 }
 
 if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['formatOption'], $available_formats) && !$edit_form) {

@@ -134,7 +134,7 @@ class php2Aria2c
             $this->formats = unserialize(file_get_contents($this->availableFormatsPath));
         } else {
             $creds = $this->getCreds();
-            $out = shell_exec('youtube-dl "' . $this->url . '" --dump-json' . $creds);
+            $out = shell_exec($GLOBALS['config']['ytd_binary'] . ' "' . $this->url . '" --dump-json' . $creds);
             $json_formats = json_decode($out, 1);
             if (isset($json_formats)) {
                 foreach ($json_formats['formats'] as $format) {
@@ -341,7 +341,7 @@ class php2Aria2c
     {
         $this->incrementAttempts();
         $creds = $this->getCreds();
-        $url = shell_exec('youtube-dl -f "' . $this->selectedFormat . '" "' . $this->url . '" -g ' . (($this->useCookiesForAria2c == 0) ? '' : '--cookies ' . $this->cookiesPath) . $creds);
+        $url = shell_exec($GLOBALS['config']['ytd_binary'] . ' -f "' . $this->selectedFormat . '" "' . $this->url . '" -g ' . (($this->useCookiesForAria2c == 0) ? '' : '--cookies ' . $this->cookiesPath) . $creds);
         if ($url === "" || is_null($url)) {
             return null;
         }
@@ -612,12 +612,12 @@ class php2Aria2c
                     break;
             }
             $stmt = $this->connection->prepare("select count(id) as count from downloads where dispatched = :type_code");
-			$stmt->bindValue(':type_code', $type_code);
+            $stmt->bindValue(':type_code', $type_code);
             $stmt->execute();
             $count = $stmt->fetch(PDO::FETCH_ASSOC);
             $pages = ceil($count['count'] / $limit);
             $stmt = $this->connection->prepare("select id, url, formatOption, download_url, opt, priority, attempts, addedTime, dispatched from downloads where dispatched = :type_code order by " . ($type_code === 0 ? "priority desc, " : "") . " id " . ($type_code === 0 ? "asc" : "desc") . " limit :limit offset :offset");
-			$stmt->bindValue(':limit', $limit);
+            $stmt->bindValue(':limit', $limit);
             $stmt->bindValue(':offset', $offset);
             $stmt->bindValue(':type_code', $type_code);
             $stmt->execute();
