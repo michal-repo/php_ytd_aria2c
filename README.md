@@ -1,7 +1,12 @@
 # php_ytd_aria2c
-Simple PHP wrapper for youtube-dl and aria2c running in daemon mode.
+Simple PHP wrapper for [youtube-dl/yt-dlp](https://github.com/yt-dlp/yt-dlp) and [aria2c](https://github.com/aria2/aria2) running in daemon mode.
 Useful for low speed connections if files have expiration date after download link is generated.
-This tool will generate download link using youtube-dl only if there is free slot in aria2c.
+This tool will generate download link using [youtube-dl/yt-dlp](https://github.com/yt-dlp/yt-dlp) only if there is free slot in aria2c.
+
+
+
+THIS APP IS NOT GOING TO WORK WITH YOUTUBE. Youtube is using multiple files (separate audio and video), Aria2c have no option to merge such sources. You need to use command line youtube-dl/yt-dlp to download and merge yt videos.
+There are tons of other pages [that you can still download from](https://github.com/yt-dlp/yt-dlp/tree/master/yt_dlp/extractor).
 
 # cron
 Set-up cron job to process links from internal queue.

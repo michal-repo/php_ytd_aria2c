@@ -159,12 +159,15 @@ function populateEditForm($data)
             $downloadOptions = unserialize($field);
             $_POST['out_name'] = $downloadOptions['out'];
             $_POST['dir_name'] = $downloadOptions['dir'];
+        } elseif ($key === "direct") {
+            $_POST[$key] = ($field === 1 ? 'true' : 'false');
         } else {
             $_POST[$key] = $field;
         }
     }
     $_POST['addToInternalQueue'] = "true";
     $_POST['skipCookies'] = "true";
+    // var_dump($_POST['direct']);die();
     return true;
 }
 
@@ -180,7 +183,11 @@ if (isset($_POST['url'])) {
         if (isset($_POST['selected_extractor']) && !empty($_POST['selected_extractor'])) {
             $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
         }
-        $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
+        if (isset($_POST['direct']) && !empty($_POST['direct'])) {
+            $available_formats = ['Direct download' => 'direct_download'];
+        } else {
+            $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
+        }
         $available_credentials = $php2Aria2c->getListOfCredentials();
         if (!(isset($_POST['id']) && !empty($_POST['id']))) {
             $alreadyAdded = $php2Aria2c->findByURL();
@@ -204,6 +211,9 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
     }
     if (isset($_POST['skipCookies']) && $_POST['skipCookies'] == "true") {
         $php2Aria2c->setCookiesUsage(0);
+    }
+    if (isset($_POST['direct']) && $_POST['direct'] == "true") {
+        $php2Aria2c->setDirectDownload(1);
     }
     if (isset($_POST['id']) && !empty($_POST['id'])) {
         $php2Aria2c->setID($_POST['id']);
@@ -325,6 +335,14 @@ $lock_state = php2Aria2c::getQueueLockStatus();
                             </label>
                         </div>
                         <div id="skipCookiesHelp" class="form-text">Skip usage of cookies file when adding to aria2c.</div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="true" id="direct" name="direct" aria-describedby="directHelp" <?php if ((isset($_POST['direct']) && $_POST['direct'] === "true")) {
+                                                                                                                                                                    echo "checked";
+                                                                                                                                                                } ?>> <label class="form-check-label" for="direct">
+                                Direct download
+                            </label>
+                        </div>
+                        <div id="directHelp" class="form-text">Direct download from provided link, do not use ytd.</div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="true" id="skipCachedFormats" name="skipCachedFormats" aria-describedby="skipCachedFormatsHelp"> <label class="form-check-label" for="skipCachedFormats">
                                 Skip formats cache.

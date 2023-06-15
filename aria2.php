@@ -106,12 +106,13 @@ class php2Aria2c
     private $credID;
     public $priority;
     private $attempts;
+    private $direct;
     private $ID;
     private $LOCK_QUEUE = "LOCK_QUEUE";
     private $LOCK_QUEUE_VAL_UNLOCKED = "UNLOCKED";
     private $LOCK_QUEUE_VAL_LOCKED = "LOCKED";
 
-    function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null, $useCookiesForAria2c = 1, $credID = null)
+    function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null, $useCookiesForAria2c = 1, $credID = null, $direct = 0)
     {
         $this->url = $url;
         $this->selectedFormat = $selectedFormat;
@@ -122,6 +123,7 @@ class php2Aria2c
         $this->out = $outName;
         $this->dir = $dirName;
         $this->credID = $credID;
+        $this->direct = $direct;
         $this->useCookiesForAria2c = $useCookiesForAria2c;
         $this->opt = array();
         $this->initDB();
@@ -172,6 +174,11 @@ class php2Aria2c
     public function setCookiesUsage($val)
     {
         $this->useCookiesForAria2c = $val;
+    }
+
+    public function setDirectDownload($val)
+    {
+        $this->direct = $val;
     }
 
     public function setCredentialsID($id)
@@ -272,6 +279,7 @@ class php2Aria2c
         $this->ID = $data['id'];
         $this->priority = $data['priority'];
         $this->attempts = $data['attempts'];
+        $this->direct = $data['direct'];
     }
 
     private function setDispachedInDBByID($id)
@@ -307,10 +315,10 @@ class php2Aria2c
         $this->generateOptionsForAria2c();
         if (!is_null($this->connection)) {
             if (isset($this->ID)) {
-                $stmt = $this->connection->prepare("update downloads set url = :url, formatOption = :formatOption, cookiesPath = :cookiesPath, useCookiesForAria2c = :useCookiesForAria2c, opt = :opt, priority = :priority where id = :id");
+                $stmt = $this->connection->prepare("update downloads set url = :url, formatOption = :formatOption, cookiesPath = :cookiesPath, useCookiesForAria2c = :useCookiesForAria2c, opt = :opt, priority = :priority, direct = :direct where id = :id");
                 $stmt->bindValue(':id', $this->ID);
             } else {
-                $stmt = $this->connection->prepare("insert into downloads (url, formatOption, cookiesPath, useCookiesForAria2c, opt, priority, dispatched, addedTime) values (:url, :formatOption, :cookiesPath, :useCookiesForAria2c, :opt, :priority, 1, datetime('now', 'localtime'))");
+                $stmt = $this->connection->prepare("insert into downloads (url, formatOption, cookiesPath, useCookiesForAria2c, opt, priority, dispatched, addedTime, direct) values (:url, :formatOption, :cookiesPath, :useCookiesForAria2c, :opt, :priority, 1, datetime('now', 'localtime'), :direct)");
             }
             $stmt->bindValue(':url', $this->url);
             $stmt->bindValue(':formatOption', $this->selectedFormat);
@@ -318,6 +326,7 @@ class php2Aria2c
             $stmt->bindValue(':useCookiesForAria2c', $this->useCookiesForAria2c);
             $stmt->bindValue(':opt', (serialize($this->opt)));
             $stmt->bindValue(':priority', $this->priority);
+            $stmt->bindValue(':direct', $this->direct);
             $stmt->execute();
             if (!isset($this->ID)) {
                 $this->ID = $this->connection->lastInsertId();
@@ -340,8 +349,12 @@ class php2Aria2c
     private function dispatchToAria2c()
     {
         $this->incrementAttempts();
-        $creds = $this->getCreds();
-        $url = shell_exec($GLOBALS['config']['ytd_binary'] . ' -f "' . $this->selectedFormat . '" "' . $this->url . '" -g ' . (($this->useCookiesForAria2c == 0) ? '' : '--cookies ' . $this->cookiesPath) . $creds);
+        if ($this->direct === 1) {
+            $url = $this->url;
+        } else {
+            $creds = $this->getCreds();
+            $url = shell_exec($GLOBALS['config']['ytd_binary'] . ' -f "' . $this->selectedFormat . '" "' . $this->url . '" -g ' . (($this->useCookiesForAria2c == 0) ? '' : '--cookies ' . $this->cookiesPath) . $creds);
+        }
         if ($url === "" || is_null($url)) {
             return null;
         }
@@ -357,10 +370,10 @@ class php2Aria2c
         if ($this->useCookiesForAria2c == 0) {
             unset($options['load-cookies']);
         }
-        return $this->aria2->addUri(
-            [$url],
-            $options
-        );
+        if (empty($options)) {
+            return $this->aria2->addUri([$url]);
+        }
+        return $this->aria2->addUri([$url], $options);
     }
 
     private function setDownloadURL($id, $url)
@@ -382,7 +395,7 @@ class php2Aria2c
             }
             $this->connection = new PDO("sqlite:" . (isset($GLOBALS['config']['db_location']) ? $GLOBALS['config']['db_location'] : __DIR__) . "/php_aria2.db");
             if ($initDB) {
-                $stmt = $this->connection->prepare('create table downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, download_url TEXT, formatOption TEXT NOT NULL, useCookiesForAria2c INTEGER DEFAULT 1 NOT NULL, cookiesPath TEXT NOT NULL, opt TEXT NOT NULL, dispatched INTEGER DEFAULT 0 NOT NULL, addedTime TEXT NOT NULL, priority INTEGER DEFAULT 5 NOT NULL, attempts INTEGER DEFAULT 0 NOT NULL ) ');
+                $stmt = $this->connection->prepare('create table downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, download_url TEXT, formatOption TEXT NOT NULL, useCookiesForAria2c INTEGER DEFAULT 1 NOT NULL, cookiesPath TEXT NOT NULL, opt TEXT NOT NULL, dispatched INTEGER DEFAULT 0 NOT NULL, addedTime TEXT NOT NULL, priority INTEGER DEFAULT 5 NOT NULL, attempts INTEGER DEFAULT 0 NOT NULL, direct INTEGER DEFAULT 0 NOT NULL) ');
                 $stmt->execute();
                 $stmt = $this->connection->prepare('create table credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, extractor TEXT NOT NULL, login TEXT NOT NULL, password TEXT NOT NULL, main_page_url TEXT NOT NULL) ');
                 $stmt->execute();
