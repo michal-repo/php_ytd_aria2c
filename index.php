@@ -167,7 +167,6 @@ function populateEditForm($data)
     }
     $_POST['addToInternalQueue'] = "true";
     $_POST['skipCookies'] = "true";
-    // var_dump($_POST['direct']);die();
     return true;
 }
 
@@ -183,9 +182,11 @@ if (isset($_POST['url'])) {
         if (isset($_POST['selected_extractor']) && !empty($_POST['selected_extractor'])) {
             $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
         }
-        if (isset($_POST['direct']) && !empty($_POST['direct'])) {
+        if (isset($_POST['direct']) && !empty($_POST['direct']) && $_POST['direct'] === "true") {
+            setcookie('directDownload', 'true', time()+60*60*24*30);
             $available_formats = ['Direct download' => 'direct_download'];
         } else {
+            setcookie('directDownload', 'false', time()+60*60*24*30);
             $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
         }
         $available_credentials = $php2Aria2c->getListOfCredentials();
@@ -198,6 +199,8 @@ if (isset($_POST['url'])) {
             }
         }
     }
+} elseif ($_COOKIE['directDownload'] === "true" ){
+    $available_formats = ['Direct download' => 'direct_download'];
 }
 
 if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['formatOption'], $available_formats) && !$edit_form) {
@@ -336,7 +339,7 @@ $lock_state = php2Aria2c::getQueueLockStatus();
                         </div>
                         <div id="skipCookiesHelp" class="form-text">Skip usage of cookies file when adding to aria2c.</div>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="true" id="direct" name="direct" aria-describedby="directHelp" <?php if ((isset($_POST['direct']) && $_POST['direct'] === "true")) {
+                            <input class="form-check-input" type="checkbox" value="true" id="direct" name="direct" aria-describedby="directHelp" <?php if ((isset($_POST['direct']) && $_POST['direct'] === "true") || (!isset($_POST['url']) && !isset($_POST['direct'])  && $_COOKIE['directDownload'] === "true")) {
                                                                                                                                                                     echo "checked";
                                                                                                                                                                 } ?>> <label class="form-check-label" for="direct">
                                 Direct download
@@ -400,7 +403,7 @@ $lock_state = php2Aria2c::getQueueLockStatus();
                                 }
                             ?>
                                 <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="formatOption" id="<?php echo $format; ?>" value="<?php echo $format; ?>" <?php if (isset($_POST['formatOption']) && $_POST['formatOption'] === $format) {
+                                    <input class="form-check-input" type="radio" name="formatOption" id="<?php echo $format; ?>" value="<?php echo $format; ?>" <?php if ((isset($_POST['formatOption']) && $_POST['formatOption'] === $format) || count($available_formats) === 1 ) {
                                                                                                                                                                     echo "checked";
                                                                                                                                                                 } ?>>
                                     <label class="form-check-label" for="<?php echo $format; ?>">
