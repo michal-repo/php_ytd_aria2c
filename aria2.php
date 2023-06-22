@@ -99,6 +99,7 @@ class php2Aria2c
     private $availableFormatsPath;
     private $out;
     private $dir;
+    private $header;
     private $useCookiesForAria2c;
     private $opt;
     private $connection;
@@ -112,7 +113,7 @@ class php2Aria2c
     private $LOCK_QUEUE_VAL_UNLOCKED = "UNLOCKED";
     private $LOCK_QUEUE_VAL_LOCKED = "LOCKED";
 
-    function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null, $useCookiesForAria2c = 1, $credID = null, $direct = 0)
+    function __construct($url = "", $selectedFormat = null, $formats = null, $outName = null, $dirName = null, $useCookiesForAria2c = 1, $credID = null, $direct = 0, $header = null)
     {
         $this->url = $url;
         $this->selectedFormat = $selectedFormat;
@@ -122,6 +123,7 @@ class php2Aria2c
         $this->availableFormatsPath = 'tmp/' . $this->md5URLID . '.formats';
         $this->out = $outName;
         $this->dir = $dirName;
+        $this->header = $header;
         $this->credID = $credID;
         $this->direct = $direct;
         $this->useCookiesForAria2c = $useCookiesForAria2c;
@@ -164,6 +166,11 @@ class php2Aria2c
     public function setOutName($outName)
     {
         $this->out = $outName;
+    }
+
+    public function setHeader($header)
+    {
+        $this->header = $header;
     }
 
     public function setDirName($dirName)
@@ -215,12 +222,14 @@ class php2Aria2c
         if (!is_null($this->cookiesPath)) {
             $this->opt['load-cookies'] = $this->cookiesPath;
         }
+        if (!is_null($this->header)) {
+            $this->opt['header'] = $this->header;
+        }
     }
 
     public function addToInternalQueue()
     {
         if (!is_null($this->connection)) {
-            $this->generateOptionsForAria2c();
             $stmt = $this->connection->prepare("update downloads set dispatched = 0 where id = :id");
             $stmt->bindValue(':id', $this->ID);
             $stmt->execute();

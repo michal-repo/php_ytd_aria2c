@@ -165,6 +165,7 @@ function populateEditForm($data)
             $downloadOptions = unserialize($field);
             $_POST['out_name'] = $downloadOptions['out'];
             $_POST['dir_name'] = $downloadOptions['dir'];
+            $_POST['custom_header'] = $downloadOptions['header'];
         } elseif ($key === "direct") {
             $_POST[$key] = ($field === 1 ? 'true' : 'false');
         } else {
@@ -221,6 +222,9 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
             $recently_used_locations[] = $_POST['dir_name'];
             setcookie('recentlyUsedLocations', json_encode($recently_used_locations), time() + 60 * 60 * 24 * 30);
         }
+    }
+    if (isset($_POST['custom_header']) && !empty($_POST['custom_header'])) {
+        $php2Aria2c->setHeader($_POST['custom_header']);
     }
     if (isset($_POST['skipCookies']) && $_POST['skipCookies'] == "true") {
         $php2Aria2c->setCookiesUsage(0);
@@ -442,8 +446,17 @@ $lock_state = php2Aria2c::getQueueLockStatus();
                             </div>
                         <?php
                         }
+                        ?>
+                        <br>
+                        <label for="custom_header" class="form-label">Custom Header</label>
+                        <input type="text" class="form-control" id="custom_header" name="custom_header" aria-describedby="custom_headerHelp" <?php
+                                                                                                                                if (isset($_POST['custom_header'])) {
+                                                                                                                                    echo 'value="' . $_POST['custom_header'] . '"';
+                                                                                                                                }
+                                                                                                                                ?>>
+                        <div id="custom_headerHelp" class="form-text">Specify custom header (optional).</div>
 
-
+                        <?php
                         if (isset($available_formats) && is_array($available_formats)) {
                         ?>
                             <hr>
