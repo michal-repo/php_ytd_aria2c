@@ -151,6 +151,12 @@ if (isset($_POST['priorityDown'])) {
     $status = php2Aria2c::decrementPriority(intval($_POST['priorityDown']));
     redirectToSelf(("?status=" . urlencode($status)));
 }
+$recently_used_locations = [];
+if (isset($_POST['emptyRecentlyUsedLocations'])) {
+    setcookie('recentlyUsedLocations', json_encode($recently_used_locations), time() + 60 * 60 * 24 * 30);
+} elseif (isset($_COOKIE['recentlyUsedLocations'])) {
+    $recently_used_locations = json_decode($_COOKIE['recentlyUsedLocations'], true);
+}
 
 function populateEditForm($data)
 {
@@ -183,23 +189,23 @@ if (isset($_POST['url'])) {
             $php2Aria2c->setCredentialsID($_POST['selected_extractor']);
         }
         if (isset($_POST['direct']) && !empty($_POST['direct']) && $_POST['direct'] === "true") {
-            setcookie('directDownload', 'true', time()+60*60*24*30);
+            setcookie('directDownload', 'true', time() + 60 * 60 * 24 * 30);
             $available_formats = ['Direct download' => 'direct_download'];
         } else {
-            setcookie('directDownload', 'false', time()+60*60*24*30);
+            setcookie('directDownload', 'false', time() + 60 * 60 * 24 * 30);
             $available_formats = $php2Aria2c->fetchFormats(((isset($_POST['skipCachedFormats']) && $_POST['skipCachedFormats'] == "true") ? true : false))->getFormats();
         }
         $available_credentials = $php2Aria2c->getListOfCredentials();
         if (!(isset($_POST['id']) && !empty($_POST['id']))) {
             $alreadyAdded = $php2Aria2c->findByURL();
-            if (isset($alreadyAdded) && count($alreadyAdded) > 0){
+            if (isset($alreadyAdded) && count($alreadyAdded) > 0) {
                 $data = end($alreadyAdded);
                 unset($data['formatOption']);
                 $edit_form = populateEditForm($data);
             }
         }
     }
-} elseif ($_COOKIE['directDownload'] === "true" ){
+} elseif ($_COOKIE['directDownload'] === "true") {
     $available_formats = ['Direct download' => 'direct_download'];
 }
 
@@ -211,6 +217,10 @@ if (isset($php2Aria2c) && isset($_POST['formatOption']) && in_array($_POST['form
     }
     if (isset($_POST['dir_name']) && !empty($_POST['dir_name'])) {
         $php2Aria2c->setDirName($_POST['dir_name']);
+        if (!in_array($_POST['dir_name'], $custom_locations) && !in_array($_POST['dir_name'], $recently_used_locations)) {
+            $recently_used_locations[] = $_POST['dir_name'];
+            setcookie('recentlyUsedLocations', json_encode($recently_used_locations), time() + 60 * 60 * 24 * 30);
+        }
     }
     if (isset($_POST['skipCookies']) && $_POST['skipCookies'] == "true") {
         $php2Aria2c->setCookiesUsage(0);
@@ -278,6 +288,9 @@ $lock_state = php2Aria2c::getQueueLockStatus();
         <?php } ?>
         <div class="row">
             <div class="col">
+                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST' id="emptyRecentlyUsedLocationsForm">
+                    <input type="hidden" value="true" id="emptyRecentlyUsedLocations" name="emptyRecentlyUsedLocations">
+                </form>
                 <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method='POST'>
                     <div class="mb-3">
                         <?php
@@ -322,6 +335,45 @@ $lock_state = php2Aria2c::getQueueLockStatus();
                         <?php
                         }
                         ?>
+
+                        <?php
+                        if (isset($recently_used_locations) && !empty($recently_used_locations)) {
+
+                        ?>
+                            <div class="accordion" id="recentlyUsed">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="recentlyUsedLocationsHeading">
+                                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#recentlyUsedLocations" aria-expanded="false" aria-controls="recentlyUsedLocations">
+                                            Recently used Save location's
+                                        </button>
+                                    </h2>
+                                    <div id="recentlyUsedLocations" class="accordion-collapse collapse" aria-labelledby="recentlyUsedLocationsHeading" data-bs-parent="#recentlyUsed">
+                                        <div class="accordion-body">
+                                            <div class="row">
+                                                <div class="col">
+                                                    <?php
+                                                    foreach ($recently_used_locations as $location) {
+                                                    ?>
+                                                        <a href='javascript:appendField("dir_name", "<?php echo $location; ?>");' style="margin-right:10px;"><?php echo $location; ?></a>
+                                                    <?php
+                                                    }
+                                                    ?>
+                                                </div>
+                                            </div>
+                                            <div class="row">
+                                                <div class="col">
+                                                    <button type="submit" class="btn btn-danger" form="emptyRecentlyUsedLocationsForm">Empty recently used</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <br>
+                        <?php
+                        }
+                        ?>
+
                         <div <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="true" id="addToInternalQueue" name="addToInternalQueue" aria-describedby="addToInternalQueueHelp" <?php if ((isset($_POST['addToInternalQueue']) && $_POST['addToInternalQueue'] === "true") || (!isset($_POST['url']) && !isset($_POST['addToInternalQueue']) && $GLOBALS['config']['add_to_internal_queue_by_default'])) {
                                                                                                                                                                                             echo "checked";
@@ -340,8 +392,8 @@ $lock_state = php2Aria2c::getQueueLockStatus();
                         <div id="skipCookiesHelp" class="form-text">Skip usage of cookies file when adding to aria2c.</div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="true" id="direct" name="direct" aria-describedby="directHelp" <?php if ((isset($_POST['direct']) && $_POST['direct'] === "true") || (!isset($_POST['url']) && !isset($_POST['direct'])  && $_COOKIE['directDownload'] === "true")) {
-                                                                                                                                                                    echo "checked";
-                                                                                                                                                                } ?>> <label class="form-check-label" for="direct">
+                                                                                                                                                        echo "checked";
+                                                                                                                                                    } ?>> <label class="form-check-label" for="direct">
                                 Direct download
                             </label>
                         </div>
@@ -403,7 +455,7 @@ $lock_state = php2Aria2c::getQueueLockStatus();
                                 }
                             ?>
                                 <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="formatOption" id="<?php echo $format; ?>" value="<?php echo $format; ?>" <?php if ((isset($_POST['formatOption']) && $_POST['formatOption'] === $format) || count($available_formats) === 1 ) {
+                                    <input class="form-check-input" type="radio" name="formatOption" id="<?php echo $format; ?>" value="<?php echo $format; ?>" <?php if ((isset($_POST['formatOption']) && $_POST['formatOption'] === $format) || count($available_formats) === 1) {
                                                                                                                                                                     echo "checked";
                                                                                                                                                                 } ?>>
                                     <label class="form-check-label" for="<?php echo $format; ?>">
