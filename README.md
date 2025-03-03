@@ -1,4 +1,8 @@
 # php_ytd_aria2c
+
+## If you liked it you can support my work
+[!["Buy Me A Coffee"](https://raw.githubusercontent.com/michal-repo/random_stuff/refs/heads/main/bmac_small.png)](https://buymeacoffee.com/michaldev)
+
 Simple PHP wrapper for [youtube-dl/yt-dlp](https://github.com/yt-dlp/yt-dlp) and [aria2c](https://github.com/aria2/aria2) running in daemon mode.
 Useful for low speed connections if files have expiration date after download link is generated.
 This tool will generate download link using [youtube-dl/yt-dlp](https://github.com/yt-dlp/yt-dlp) only if there is free slot in aria2c.
